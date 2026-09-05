@@ -155,3 +155,68 @@ test("doctor and history paginate", async ({ page, request }) => {
   await historyCard.getByRole("button", { name: "Next", exact: true }).click();
   await expect(historyCard.getByText(/Page 2 of \d+/)).toBeVisible();
 });
+
+test("gate toggle, keyboard submit and bulk delete", async ({ page, request }) => {
+  for (const pid of ["bulkdel-1", "bulkdel-2"]) {
+    const res = await request.post("/api/save-provider", {
+      data: {
+        base_url: "https://api.example.com/v1",
+        api_key: "sk-e2e-test-key-123",
+        model_id: "m",
+        providerType: "custom",
+        providerId: pid,
+      },
+    });
+    expect(res.ok()).toBe(true);
+  }
+  await page.goto("/");
+  await page.selectOption("#existing_provider", "bulkdel-1");
+  await page.getByRole("radio", { name: "Disabled" }).click();
+  await expect(page.getByRole("radio", { name: "Disabled" })).toBeChecked();
+
+  // Ctrl+Enter opens the preview; Escape closes it.
+  await page.selectOption("#existing_provider", "__new");
+  await page.fill("#base_url", "https://kb.example.com/v1");
+  await page.fill("#api_key", "sk-e2e-test-key-123");
+  await page.fill("#model_id", "kb-model");
+  await page.keyboard.press("Control+Enter");
+  await expect(page.getByRole("dialog", { name: "Review changes" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Review changes" })).not.toBeVisible();
+
+  // Bulk delete both seeded providers.
+  await page.getByLabel(/bulkdel-1/).check();
+  await page.getByLabel(/bulkdel-2/).check();
+  await page.getByRole("button", { name: /Delete selected \(2\)/ }).click();
+  await page.getByRole("button", { name: /Delete selected \(2\)/ }).click();
+  await expect(page.getByText(/Deleted 2 providers/)).toBeVisible();
+  await expect(page.locator('#existing_provider option[value="bulkdel-1"]')).toHaveCount(0);
+});
+
+test("export redacts secrets; keyless import is rejected", async ({ page, request }) => {
+  await page.goto("/");
+  const dl = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export pack" }).click();
+  const download = await dl;
+  const filePath = await download.path();
+  expect(filePath).toBeTruthy();
+  const text = (await import("node:fs")).readFileSync(filePath, "utf8");
+  expect(text).not.toMatch(/sk-e2e-test-key-123/);
+  expect(text).toMatch(/"providers"/);
+
+  const bad = await request.post("/api/import", {
+    data: { providers: { p1: { options: { baseURL: "https://x.example.com" }, models: { m: {} } } } },
+  });
+  expect(bad.status()).toBe(400);
+  const good = await request.post("/api/import", {
+    data: {
+      providers: {
+        imp1: {
+          options: { baseURL: "https://imp.example.com", apiKey: "sk-imp-key-123" },
+          models: { m: { name: "m" } },
+        },
+      },
+    },
+  });
+  expect(good.ok()).toBe(true);
+});

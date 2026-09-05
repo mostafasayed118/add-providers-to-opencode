@@ -33,6 +33,8 @@ export default function Home() {
   const [doctorPage, setDoctorPage] = useState(0);
   const [historyPage, setHistoryPage] = useState(0);
   const [providerQuery, setProviderQuery] = useState("");
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [backupSort, setBackupSort] = useState<"newest" | "oldest" | "largest">("newest");
   const t = strings[locale];
   const form = useProviderForm(t);
 
@@ -43,12 +45,18 @@ export default function Home() {
       p.models.some((m) => m.id.toLowerCase().includes(providerQuery.trim().toLowerCase()))
   );
 
-  const BACKUP_PAGE_SIZE = PAGE_SIZE;
-  const backupTotalPages = Math.max(1, Math.ceil(form.backups.length / BACKUP_PAGE_SIZE));
+  const sortedBackups = [...form.backups].sort((a, b) =>
+    backupSort === "oldest"
+      ? a.mtimeMs - b.mtimeMs
+      : backupSort === "largest"
+        ? b.bytes - a.bytes
+        : b.mtimeMs - a.mtimeMs
+  );
+  const backupTotalPages = Math.max(1, Math.ceil(sortedBackups.length / PAGE_SIZE));
   const safeBackupPage = Math.min(backupPage, backupTotalPages - 1);
-  const visibleBackups = form.backups.slice(
-    safeBackupPage * BACKUP_PAGE_SIZE,
-    safeBackupPage * BACKUP_PAGE_SIZE + BACKUP_PAGE_SIZE
+  const visibleBackups = sortedBackups.slice(
+    safeBackupPage * PAGE_SIZE,
+    safeBackupPage * PAGE_SIZE + PAGE_SIZE
   );
   const doctorTotalPages = Math.max(1, Math.ceil(form.issues.length / PAGE_SIZE));
   const safeDoctorPage = Math.min(doctorPage, doctorTotalPages - 1);
@@ -65,7 +73,7 @@ export default function Home() {
 
   useEffect(() => {
     setBackupPage(0);
-  }, [form.backups.length]);
+  }, [form.backups.length, backupSort]);
 
   useEffect(() => {
     setDoctorPage(0);
@@ -74,6 +82,23 @@ export default function Home() {
   useEffect(() => {
     setHistoryPage(0);
   }, [form.history.length]);
+
+  // Ctrl/Cmd+Enter submits (or confirms an open preview); Escape backs out.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        if (form.preview) void form.confirmSubmit();
+        else void form.submit();
+      } else if (e.key === "Escape") {
+        if (form.preview) form.closePreview();
+        else if (form.deleting === "confirm") form.setDeleting("idle");
+        else setBulkConfirm(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   useEffect(() => {
     const stored = localStorage.getItem("theme");
@@ -137,6 +162,31 @@ export default function Home() {
             </button>
           </div>
         </header>
+
+        {form.externalChanged && (
+          <div
+            role="alert"
+            className="animate-enter mb-5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+          >
+            <p>{t.externalChanged}</p>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={form.dismissExternal}
+                className="rounded-lg bg-blue-600 px-3 py-1 text-sm font-semibold text-white transition duration-200 hover:bg-blue-700 active:scale-[0.98]"
+              >
+                {t.reloadNow}
+              </button>
+              <button
+                type="button"
+                onClick={form.hideExternal}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+              >
+                {t.dismiss}
+              </button>
+            </div>
+          </div>
+        )}
 
         {form.showOnboarding && (
           <div role="status" className="animate-enter mb-5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100">
@@ -217,6 +267,114 @@ export default function Home() {
                 <option value="__new_model">{t.newModel}</option>
               </select>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t.otherModelsKept}</p>
+            </div>
+          )}
+
+          {form.selectedProvider && (
+            <div>
+              <p className="mb-2 text-sm font-medium">{t.gatesTitle}</p>
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t.gatesTitle}>
+                {(
+                  [
+                    { v: "auto", label: t.gateAuto },
+                    { v: "enabled", label: t.gateEnabled },
+                    { v: "disabled", label: t.gateDisabled },
+                  ] as const
+                ).map((o) => {
+                  const active =
+                    (form.gates.disabled.includes(form.selectedProvider!.id) && o.v === "disabled") ||
+                    (form.gates.enabled.includes(form.selectedProvider!.id) && o.v === "enabled") ||
+                    (!form.gates.disabled.includes(form.selectedProvider!.id) &&
+                      !form.gates.enabled.includes(form.selectedProvider!.id) &&
+                      o.v === "auto");
+                  return (
+                    <button
+                      key={o.v}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => form.setGate(o.v)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition duration-200 active:scale-95 ${
+                        active
+                          ? "border-blue-600 bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
+                          : "border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t.gatesHint}</p>
+            </div>
+          )}
+
+          {form.providers.length > 1 && (
+            <div>
+              <p className="mb-2 text-sm font-medium">{t.manageTitle}</p>
+              <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">{t.manageHint}</p>
+              <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-slate-200 p-2 dark:border-slate-800">
+                {form.providers.map((p) => (
+                  <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={form.bulkSel.includes(p.id)}
+                      onChange={() => form.toggleBulk(p.id)}
+                      className="accent-blue-600"
+                    />
+                    <span className="font-mono text-[13px]">{p.id}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      {p.models.length} model{p.models.length === 1 ? "" : "s"}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {form.bulkSel.length > 0 && (
+                <div className="mt-2 flex items-center gap-2">
+                  {bulkConfirm ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          form.deleteBulk();
+                          setBulkConfirm(false);
+                        }}
+                        disabled={form.bulkBusy}
+                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition duration-200 hover:bg-red-700 active:scale-[0.98] disabled:opacity-60"
+                      >
+                        {form.bulkBusy ? t.deletingSelected : t.deleteSelected(form.bulkSel.length)}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBulkConfirm(false)}
+                        className={secondaryBtn}
+                      >
+                        {t.cancel}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setBulkConfirm(true)}
+                      className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 transition duration-200 hover:bg-red-50 active:scale-[0.98] dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                    >
+                      {t.deleteSelected(form.bulkSel.length)}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={t.dismiss}
+                    title={t.dismiss}
+                    onClick={() => {
+                      form.clearBulk();
+                      setBulkConfirm(false);
+                    }}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -727,6 +885,21 @@ export default function Home() {
             </button>
           )}
         </div>
+        <div className="mt-2 flex items-center gap-2">
+          <label htmlFor="backup_sort" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            {t.sortLabel}
+          </label>
+          <select
+            id="backup_sort"
+            value={backupSort}
+            onChange={(e) => setBackupSort(e.target.value as "newest" | "oldest" | "largest")}
+            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs shadow-sm focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
+          >
+            <option value="newest">{t.sortNewest}</option>
+            <option value="oldest">{t.sortOldest}</option>
+            <option value="largest">{t.sortLargest}</option>
+          </select>
+        </div>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.backupsHint}</p>
         {form.backups.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t.noBackups}</p>
@@ -868,6 +1041,39 @@ export default function Home() {
           />
           </>
         )}
+      </div>
+
+      <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
+        <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
+          <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">07</span>
+          {t.exportBtn} / {t.importBtn}
+        </h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.importHint}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={form.exportPack}
+            className={secondaryBtn}
+          >
+            {t.exportBtn}
+          </button>
+          <label
+            className={`${secondaryBtn} cursor-pointer`}
+          >
+            {form.importBusy ? t.importing : t.importBtn}
+            <input
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              disabled={form.importBusy}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void form.importPackFile(f);
+              }}
+            />
+          </label>
+        </div>
       </div>
 
       <p className="mt-4 text-center text-xs text-slate-500 dark:text-slate-400">{t.footer}</p>

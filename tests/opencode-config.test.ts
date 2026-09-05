@@ -486,6 +486,93 @@ test("redactSecrets hides keys and header values, keeps structure", async () => 
   assert.equal((out.models.m as Record<string, unknown>).name, "m");
 });
 
+test("gateOf/withGate follow the disabled-wins rule", async () => {
+  const { gateOf, withGate } = await import("../src/lib/opencode-config");
+  const base = { enabled_providers: ["a"], disabled_providers: ["b"] };
+  assert.equal(gateOf(base, "a"), "enabled");
+  assert.equal(gateOf(base, "b"), "disabled");
+  assert.equal(gateOf(base, "c"), "auto");
+  const moved = withGate(base, "a", "disabled");
+  assert.deepEqual(moved.disabled_providers, ["b", "a"]);
+  assert.deepEqual(moved.enabled_providers, []);
+  const cleared = withGate(moved, "a", "auto");
+  assert.equal("enabled_providers" in cleared, false);
+  assert.deepEqual(cleared.disabled_providers, ["b"]);
+});
+
+test("setProviderGate rejects unknown providers", async () => {
+  const { setProviderGate } = await import("../src/lib/opencode-config");
+  await assert.rejects(setProviderGate(cfgPath(), "ghost", "disabled"), /does not exist/);
+});
+
+test("deleteManyProviders removes a batch with one backup", async () => {
+  const { deleteManyProviders } = await import("../src/lib/opencode-config");
+  const mk = (pid: string) =>
+    saveProviderConfig({
+      base_url: "https://api.example.com/v1",
+      api_key: "sk-test-12345678",
+      model_id: "m",
+      providerType: "custom",
+      providerId: pid,
+      context_limit: undefined,
+      output_limit: undefined,
+      tool_call: true,
+      reasoning: false,
+      attachment: false,
+      keyStorage: "inline",
+      headers: [],
+    });
+  await mk("bulk1");
+  await mk("bulk2");
+  const res = await deleteManyProviders(cfgPath(), ["BULK1", "bulk2"]);
+  assert.equal(res.backup === null || typeof res.backup === "string", true);
+  const raw = await readRaw();
+  assert.equal("bulk1" in raw.provider, false);
+  assert.equal("bulk2" in raw.provider, false);
+  await assert.rejects(deleteManyProviders(cfgPath(), []), /No providers/);
+  await assert.rejects(deleteManyProviders(cfgPath(), ["ghost"]), /Unknown providers/);
+});
+
+test("validatePack accepts good packs and rejects keyless ones", async () => {
+  const { validatePack } = await import("../src/lib/opencode-config");
+  const good = validatePack({
+    providers: {
+      p1: {
+        options: { baseURL: "https://x.example.com", apiKey: "k" },
+        models: { m: { name: "m" } },
+      },
+    },
+  });
+  assert.equal(good.ok, true);
+  const bad = validatePack({
+    providers: {
+      p1: { options: { baseURL: "https://x.example.com" }, models: { m: { name: "m" } } },
+    },
+  });
+  assert.equal(bad.ok, false);
+  if (!bad.ok) assert.match(bad.error, /no key/i);
+  assert.equal(validatePack({ providers: {} }).ok, false);
+  assert.equal(validatePack(null).ok, false);
+});
+
+test("importPack merges entries and keeps existing ones", async () => {
+  const { importPack, validatePack } = await import("../src/lib/opencode-config");
+  const checked = validatePack({
+    providers: {
+      imp1: {
+        options: { baseURL: "https://imp.example.com", apiKey: "{env:IMP_KEY}" },
+        models: { m: { name: "m" } },
+      },
+    },
+  });
+  assert.equal(checked.ok, true);
+  if (!checked.ok) throw new Error("pack should validate");
+  const res = await importPack(cfgPath(), checked.pack);
+  assert.deepEqual(res.imported, ["imp1"]);
+  const raw = await readRaw();
+  assert.equal(raw.provider.imp1.options.apiKey, "{env:IMP_KEY}");
+});
+
 test("cleanup temp home", () => {
   rmSync(tmpHome, { recursive: true, force: true });
   assert.equal(true, true);

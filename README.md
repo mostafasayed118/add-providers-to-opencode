@@ -12,9 +12,10 @@ image `modalities`, reasoning stream field), API key storage options (inline,
 env-var or file reference), custom headers, small_model, multi-model providers,
 provider delete with active-model fallback, provider search, one-click presets,
 **diff preview with secrets redacted**, backup list + restore + one-click undo,
-config doctor with auto-fixes, change history, timestamped backups +
-corrupt-file recovery, concurrent-save locking, English/Arabic UI,
-auto-update from GitHub Releases (desktop build).
+config doctor with auto-fixes, change history, enable/disable provider gates,
+bulk delete, provider search, one-click presets, export/import packs,
+timestamped backups + corrupt-file recovery, concurrent-save locking,
+English/Arabic UI, auto-update from GitHub Releases (desktop build).
 
 ## Run end-to-end
 

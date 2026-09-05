@@ -114,7 +114,33 @@ export type Strings = {
   cloneFailed: string;
   cloned: (id: string) => string;
   undoLast: string;
-  promptOk: (reply: string) => string;  apiKeyRequired: string;
+  promptOk: (reply: string) => string;
+  gatesTitle: string;
+  gatesHint: string;
+  gateAuto: string;
+  gateEnabled: string;
+  gateDisabled: string;
+  gateFailed: string;
+  externalChanged: string;
+  reloadNow: string;
+  dismiss: string;
+  manageTitle: string;
+  manageHint: string;
+  deleteSelected: (n: number) => string;
+  deletingSelected: string;
+  bulkDeleted: (n: number, model: string) => string;
+  exportBtn: string;
+  importBtn: string;
+  importing: string;
+  importHint: string;
+  exportFailed: string;
+  importFailed: string;
+  importBadJson: string;
+  imported: (ids: string) => string;
+  sortLabel: string;
+  sortNewest: string;
+  sortOldest: string;
+  sortLargest: string;  apiKeyRequired: string;
   keyEnvNameRequired: string;
   keyFileRequired: string;
   testOk: (count: number) => string;
@@ -253,6 +279,32 @@ const en: Strings = {
   cloned: (id) => `Cloned as “${id}”. It is now loaded in the form.`,
   undoLast: "Undo last change",
   promptOk: (reply) => `Model answered: ${reply}`,
+  gatesTitle: "Availability",
+  gatesHint: "Allow-list (enabled) or deny-list (disabled) this provider. Disabled wins.",
+  gateAuto: "Auto",
+  gateEnabled: "Enabled",
+  gateDisabled: "Disabled",
+  gateFailed: "Could not update availability.",
+  externalChanged: "opencode.json changed outside this app.",
+  reloadNow: "Reload",
+  dismiss: "Dismiss",
+  manageTitle: "Manage providers",
+  manageHint: "Tick providers to delete several at once.",
+  deleteSelected: (n) => `Delete selected (${n})`,
+  deletingSelected: "Deleting…",
+  bulkDeleted: (n, model) => `Deleted ${n} providers. Active model is now ${model}.`,
+  exportBtn: "Export pack",
+  importBtn: "Import pack",
+  importing: "Importing…",
+  importHint: "Exported packs redact secrets; re-enter keys on import.",
+  exportFailed: "Export failed.",
+  importFailed: "Import failed.",
+  importBadJson: "File is not valid JSON.",
+  imported: (ids) => `Imported: ${ids}`,
+  sortLabel: "Sort",
+  sortNewest: "Newest",
+  sortOldest: "Oldest",
+  sortLargest: "Largest",
   apiKeyRequired: "api_key is required.",
   keyEnvNameRequired: "Choose an env var name to store the key in.",
   keyFileRequired: "Choose a file path to store the key in.",
@@ -393,6 +445,32 @@ const ar: Strings = {
   cloned: (id) => `تم النسخ باسم “${id}”. وهو محمّل الآن في النموذج.`,
   undoLast: "التراجع عن آخر تغيير",
   promptOk: (reply) => `أجاب النموذج: ${reply}`,
+  gatesTitle: "التوفّر",
+  gatesHint: "السماح (enabled) أو المنع (disabled) لهذا المزوّد. المنع يغلّب.",
+  gateAuto: "تلقائي",
+  gateEnabled: "مسموح",
+  gateDisabled: "ممنوع",
+  gateFailed: "تعذّر تحديث التوفّر.",
+  externalChanged: "تغيّر opencode.json خارج هذا التطبيق.",
+  reloadNow: "إعادة تحميل",
+  dismiss: "تجاهل",
+  manageTitle: "إدارة المزوّدين",
+  manageHint: "علّم المزوّدين لحذف عدة مزوّدين دفعة واحدة.",
+  deleteSelected: (n) => `حذف المحدد (${n})`,
+  deletingSelected: "جارٍ الحذف…",
+  bulkDeleted: (n, model) => `حُذف ${n} من المزوّدين. النموذج النشط الآن ${model}.`,
+  exportBtn: "تصدير حزمة",
+  importBtn: "استيراد حزمة",
+  importing: "جارٍ الاستيراد…",
+  importHint: "الحزم المصدّرة تخفي الأسرار؛ أعد إدخال المفاتيح عند الاستيراد.",
+  exportFailed: "فشل التصدير.",
+  importFailed: "فشل الاستيراد.",
+  importBadJson: "الملف ليس JSON صالحًا.",
+  imported: (ids) => `تم الاستيراد: ${ids}`,
+  sortLabel: "ترتيب",
+  sortNewest: "الأحدث",
+  sortOldest: "الأقدم",
+  sortLargest: "الأكبر",
   apiKeyRequired: "مفتاح API مطلوب.",
   keyEnvNameRequired: "اختر اسم متغير بيئة لتخزين المفتاح.",
   keyFileRequired: "اختر مسار ملف لتخزين المفتاح.",

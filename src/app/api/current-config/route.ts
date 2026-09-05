@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
-import { getGlobalConfigPath, listProviders } from "@/lib/opencode-config";
+import {
+  configMtimeMs,
+  getGlobalConfigPath,
+  getProviderGates,
+  listProviders,
+} from "@/lib/opencode-config";
 
 export const dynamic = "force-dynamic";
 
@@ -10,16 +15,22 @@ export async function GET() {
     let model: string | null = null;
     let smallModel: string | null = null;
     let exists = true;
+    let gates = { enabled: [] as string[], disabled: [] as string[] };
     try {
+      // Raw read on purpose: a GET must never repair or back up the file.
       const raw = await fs.readFile(configPath, "utf8");
-      const parsed = JSON.parse(raw) as { model?: unknown; small_model?: unknown };
-      model = typeof parsed.model === "string" ? parsed.model : null;
-      smallModel = typeof parsed.small_model === "string" ? parsed.small_model : null;
+      const parsed = (raw.trim() ? JSON.parse(raw) : {}) as Record<string, unknown>;
+      if (typeof parsed.model === "string") model = parsed.model;
+      if (typeof parsed.small_model === "string") smallModel = parsed.small_model;
+      gates = getProviderGates(parsed);
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
         exists = false;
       } else {
-        throw err;
+        return NextResponse.json(
+          { ok: false, errors: { _form: "Existing opencode.json is not valid JSON." } },
+          { status: 500 }
+        );
       }
     }
     const providers = exists ? await listProviders(configPath) : [];
@@ -29,6 +40,8 @@ export async function GET() {
       path: configPath,
       model,
       smallModel,
+      mtimeMs: await configMtimeMs(configPath),
+      gates,
       providerIds: providers.map((p) => p.id),
       providers,
     });

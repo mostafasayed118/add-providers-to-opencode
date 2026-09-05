@@ -132,6 +132,221 @@ export async function getStoredApiKey(
 
 export type KeyRef = { kind: "env" | "file"; name: string } | null;
 
+export type GateState = "auto" | "enabled" | "disabled";
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((x): x is string => typeof x === "string") : [];
+}
+
+/** Provider allow/deny lists. disabled wins over enabled (opencode rule). */
+export function getProviderGates(existing: Record<string, unknown>): {
+  enabled: string[];
+  disabled: string[];
+} {
+  return {
+    enabled: stringList(existing.enabled_providers),
+    disabled: stringList(existing.disabled_providers),
+  };
+}
+
+export function gateOf(
+  existing: Record<string, unknown>,
+  providerId: string
+): GateState {
+  const { enabled, disabled } = getProviderGates(existing);
+  if (disabled.includes(providerId)) return "disabled";
+  if (enabled.includes(providerId)) return "enabled";
+  return "auto";
+}
+
+export function withGate(
+  existing: Record<string, unknown>,
+  providerId: string,
+  state: GateState
+): Record<string, unknown> {
+  const { enabled, disabled } = getProviderGates(existing);
+  const next = { ...existing };
+  const set = (ids: string[]) => [...new Set(ids)];
+  if (state === "disabled") {
+    next.disabled_providers = set([...disabled, providerId]);
+    next.enabled_providers = enabled.filter((x) => x !== providerId);
+  } else if (state === "enabled") {
+    next.enabled_providers = set([...enabled, providerId]);
+    next.disabled_providers = disabled.filter((x) => x !== providerId);
+  } else {
+    next.enabled_providers = enabled.filter((x) => x !== providerId);
+    next.disabled_providers = disabled.filter((x) => x !== providerId);
+    if ((next.enabled_providers as string[]).length === 0) delete next.enabled_providers;
+    if ((next.disabled_providers as string[]).length === 0) delete next.disabled_providers;
+  }
+  return next;
+}
+
+export async function setProviderGate(
+  configPath: string,
+  providerId: string,
+  state: GateState
+): Promise<void> {
+  const id = providerId.trim().toLowerCase();
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await withConfigLock(configPath, async () => {
+    const existing = await readExistingConfig(configPath);
+    const providers = ((existing.provider as Record<string, unknown> | undefined) ?? {}) as Record<
+      string,
+      unknown
+    >;
+    if (!(id in providers)) throw new Error(`Provider "${id}" does not exist.`);
+    const next = withGate(existing, id, state);
+    const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+    await fs.rename(tmp, configPath);
+  });
+}
+
+export async function deleteManyProviders(
+  configPath: string,
+  providerIds: string[]
+): Promise<{ backup: string | null; clearedActiveModel: boolean; newModel: string | null }> {
+  const ids = [...new Set(providerIds.map((x) => x.trim().toLowerCase()).filter(Boolean))].slice(
+    0,
+    100
+  );
+  if (ids.length === 0) throw new Error("No providers selected.");
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  return withConfigLock(configPath, async () => {
+    const existing = await readExistingConfig(configPath);
+    const providers = { ...((existing.provider as Record<string, unknown> | undefined) ?? {}) };
+    const missing = ids.filter((id) => !(id in providers));
+    if (missing.length > 0) throw new Error(`Unknown providers: ${missing.join(", ")}.`);
+    let backup: string | null = null;
+    try {
+      await fs.access(configPath);
+      backup = `${configPath}.bak.${Date.now()}`;
+      await fs.copyFile(configPath, backup);
+    } catch {
+      backup = null;
+    }
+    for (const id of ids) delete providers[id];
+    let clearedActiveModel = false;
+    let newModel = (existing as { model?: unknown }).model ?? null;
+    const currentModel = newModel;
+    if (
+      typeof currentModel === "string" &&
+      ids.some((id) => currentModel.toLowerCase().startsWith(`${id}/`))
+    ) {
+      clearedActiveModel = true;
+      newModel = null;
+      for (const [pid, p] of Object.entries(providers)) {
+        const models = ((p as Record<string, unknown>).models ?? {}) as Record<string, unknown>;
+        const first = Object.keys(models)[0];
+        if (first) {
+          newModel = `${pid}/${first}`;
+          break;
+        }
+      }
+    }
+    const next: Record<string, unknown> = { ...existing, provider: providers };
+    if (newModel) next.model = newModel;
+    else delete next.model;
+    const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+    await fs.rename(tmp, configPath);
+    return {
+      backup,
+      clearedActiveModel,
+      newModel: typeof newModel === "string" ? newModel : null,
+    };
+  });
+}
+
+export type ImportedPack = {
+  providers: Record<string, Record<string, unknown>>;
+};
+
+/**
+ * Validate an imported provider pack. Secrets must be present per provider
+ * (inline key or env/file reference) — importing keyless entries silently
+ * would create dead providers.
+ */
+export function validatePack(pack: unknown): { ok: true; pack: ImportedPack } | { ok: false; error: string } {
+  if (pack === null || typeof pack !== "object" || Array.isArray(pack)) {
+    return { ok: false, error: "Pack must be a JSON object with a providers map." };
+  }
+  const root = pack as Record<string, unknown>;
+  const rawProviders = root.providers ?? root;
+  if (rawProviders === null || typeof rawProviders !== "object" || Array.isArray(rawProviders)) {
+    return { ok: false, error: "Pack must contain a providers object." };
+  }
+  const providers: ImportedPack["providers"] = {};
+  for (const [pid, p] of Object.entries(rawProviders as Record<string, unknown>)) {
+    if (!/^[a-z0-9-]{1,32}$/.test(pid)) {
+      return { ok: false, error: `Bad provider id "${pid}".` };
+    }
+    if (p === null || typeof p !== "object" || Array.isArray(p)) {
+      return { ok: false, error: `Provider "${pid}" must be an object.` };
+    }
+    const prov = p as Record<string, unknown>;
+    const options = prov.options;
+    if (options === null || typeof options !== "object" || Array.isArray(options)) {
+      return { ok: false, error: `Provider "${pid}" needs options with baseURL and apiKey.` };
+    }
+    const opts = options as Record<string, unknown>;
+    if (typeof opts.baseURL !== "string" || !opts.baseURL) {
+      return { ok: false, error: `Provider "${pid}" needs options.baseURL.` };
+    }
+    if (typeof opts.apiKey !== "string" || !opts.apiKey) {
+      return { ok: false, error: `Provider "${pid}" has no key. Add apiKey (or an {env:}/{file:} reference) before importing.` };
+    }
+    if (/^\u2022+$/.test(opts.apiKey)) {
+      return { ok: false, error: `Provider "${pid}" carries a redacted placeholder, not a real key. Re-enter the key before importing.` };
+    }
+    const models = prov.models;
+    if (models === null || typeof models !== "object" || Array.isArray(models) || Object.keys(models).length === 0) {
+      return { ok: false, error: `Provider "${pid}" needs at least one model.` };
+    }
+    providers[pid] = { npm: "@ai-sdk/openai-compatible", ...prov };
+  }
+  if (Object.keys(providers).length === 0) {
+    return { ok: false, error: "Pack contains no providers." };
+  }
+  return { ok: true, pack: { providers } };
+}
+
+export async function importPack(
+  configPath: string,
+  pack: ImportedPack
+): Promise<{ backup: string | null; imported: string[] }> {
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  return withConfigLock(configPath, async () => {
+    const existing = await readExistingConfig(configPath);
+    let backup: string | null = null;
+    try {
+      await fs.access(configPath);
+      backup = `${configPath}.bak.${Date.now()}`;
+      await fs.copyFile(configPath, backup);
+    } catch {
+      backup = null;
+    }
+    const providers = { ...((existing.provider as Record<string, unknown> | undefined) ?? {}) };
+    for (const [pid, entry] of Object.entries(pack.providers)) {
+      providers[pid] = entry;
+    }
+    const next = { ...existing, provider: providers };
+    const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+    await fs.rename(tmp, configPath);
+    return { backup, imported: Object.keys(pack.providers) };
+  });
+}
+
+export async function configMtimeMs(configPath: string): Promise<number | null> {
+  try {
+    return (await fs.stat(configPath)).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 const SECRET_KEYS = new Set(["apiKey", "api_key", "token", "secret"]);
 
 /**

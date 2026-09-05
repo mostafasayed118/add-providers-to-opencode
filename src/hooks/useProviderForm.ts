@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   providerSchema,
   toFieldErrors,
@@ -86,6 +86,49 @@ export function useProviderForm(t: Strings) {
   const [onboardDismissed, setOnboardDismissed] = useState(false);
   const [backups, setBackups] = useState<BackupRow[]>([]);
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [gates, setGates] = useState<{ enabled: string[]; disabled: string[] }>({
+    enabled: [],
+    disabled: [],
+  });
+  const [externalChanged, setExternalChanged] = useState(false);
+  const [bulkSel, setBulkSel] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  // Last seen config mtime. Our own writes re-baseline silently; anything
+  // else raising mtime means an outside edit (hand edit, opencode itself).
+  const mtimeRef = useRef<number | null>(null);
+
+  async function refreshProviders(opts?: { quietMtime?: boolean }) {
+    try {
+      const res = await fetch("/api/current-config");
+      const d = (await res.json()) as {
+        ok: boolean;
+        providers?: ProviderSummary[];
+        model?: string | null;
+        smallModel?: string | null;
+        mtimeMs?: number | null;
+        gates?: { enabled: string[]; disabled: string[] };
+      };
+      if (d.ok) {
+        if (Array.isArray(d.providers)) setProviders(d.providers);
+        setActiveModel(d.model ?? null);
+        setStoredSmallModel(d.smallModel ?? null);
+        if (d.gates) setGates(d.gates);
+        if (typeof d.mtimeMs === "number") {
+          if (
+            !opts?.quietMtime &&
+            mtimeRef.current !== null &&
+            d.mtimeMs !== mtimeRef.current
+          ) {
+            setExternalChanged(true);
+          }
+          mtimeRef.current = d.mtimeMs;
+        }
+      }
+    } catch {
+      // Dropdown stays empty; form still works for new providers.
+    }
+  }
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [promptState, setPromptState] = useState<"idle" | "testing" | "ok" | "error">("idle");
@@ -100,25 +143,6 @@ export function useProviderForm(t: Strings) {
   const requireKey = !selectedProvider?.hasKey;
   const showOnboarding =
     !onboardDismissed && !touched && !result && providers.length > 0 && selected === "__new";
-
-  async function refreshProviders() {
-    try {
-      const res = await fetch("/api/current-config");
-      const d = (await res.json()) as {
-        ok: boolean;
-        providers?: ProviderSummary[];
-        model?: string | null;
-        smallModel?: string | null;
-      };
-      if (d.ok) {
-        if (Array.isArray(d.providers)) setProviders(d.providers);
-        setActiveModel(d.model ?? null);
-        setStoredSmallModel(d.smallModel ?? null);
-      }
-    } catch {
-      // Dropdown stays empty; form still works for new providers.
-    }
-  }
 
   async function refreshBackups() {
     try {
@@ -150,13 +174,164 @@ export function useProviderForm(t: Strings) {
     }
   }
 
-  async function refreshAll() {
-    await Promise.all([refreshProviders(), refreshBackups(), refreshDoctor(), refreshHistory()]);
+  async function refreshAll(opts?: { quietMtime?: boolean }) {
+    await Promise.all([
+      refreshProviders(opts),
+      refreshBackups(),
+      refreshDoctor(),
+      refreshHistory(),
+    ]);
+  }
+
+  async function dismissExternal() {
+    setExternalChanged(false);
+    await refreshAll({ quietMtime: true });
+  }
+
+  function hideExternal() {
+    setExternalChanged(false);
   }
 
   useEffect(() => {
     void refreshAll();
   }, []);
+
+  // Watch for outside edits (hand edit, opencode itself writing the file).
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void refreshProviders();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  function gateOfSelected(): "auto" | "enabled" | "disabled" {
+    if (!selectedProvider) return "auto";
+    if (gates.disabled.includes(selectedProvider.id)) return "disabled";
+    if (gates.enabled.includes(selectedProvider.id)) return "enabled";
+    return "auto";
+  }
+
+  async function setGate(state: "auto" | "enabled" | "disabled") {
+    if (!selectedProvider) return;
+    try {
+      const res = await fetch("/api/gates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: selectedProvider.id, state }),
+      });
+      const data = (await res.json()) as { ok: boolean; errors?: FieldErrors };
+      if (!res.ok || !data.ok) {
+        setErrors(data.errors ?? { _form: t.gateFailed });
+        setStatus("error");
+        return;
+      }
+      await refreshAll({ quietMtime: true });
+    } catch {
+      setErrors({ _form: t.networkError });
+      setStatus("error");
+    }
+  }
+
+  function toggleBulk(id: string) {
+    setBulkSel((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  async function deleteBulk() {
+    if (bulkSel.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      const res = await fetch("/api/delete-many", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: bulkSel }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        deleted?: number;
+        newModel?: string | null;
+        clearedActiveModel?: boolean;
+        errors?: FieldErrors;
+      };
+      if (!res.ok || !data.ok) {
+        setErrors(data.errors ?? { _form: t.deleteFailed });
+        setStatus("error");
+        return;
+      }
+      setBulkSel([]);
+      await refreshAll({ quietMtime: true });
+      reset();
+      setErrors({
+        _form: t.bulkDeleted(data.deleted ?? bulkSel.length, data.newModel ?? t.none),
+      });
+      setStatus("error");
+    } catch {
+      setErrors({ _form: t.networkError });
+      setStatus("error");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function exportPack() {
+    try {
+      const res = await fetch("/api/export");
+      const data = (await res.json()) as { ok: boolean; pack?: unknown };
+      if (!res.ok || !data.ok) throw new Error("export failed");
+      const blob = new Blob([JSON.stringify(data.pack, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "opencode-providers.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setErrors({ _form: t.exportFailed });
+      setStatus("error");
+    }
+  }
+
+  async function importPackFile(file: File) {
+    setImportBusy(true);
+    try {
+      const text = await file.text();
+      let body: unknown;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        setErrors({ _form: t.importBadJson });
+        setStatus("error");
+        return;
+      }
+      const res = await fetch("/api/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        imported?: string[];
+        errors?: FieldErrors;
+      };
+      if (!res.ok || !data.ok) {
+        setErrors(data.errors ?? { _form: t.importFailed });
+        setStatus("error");
+        return;
+      }
+      await refreshAll({ quietMtime: true });
+      reset();
+      setErrors({ _form: t.imported((data.imported ?? []).join(", ")) });
+      setStatus("error");
+    } catch {
+      setErrors({ _form: t.networkError });
+      setStatus("error");
+    } finally {
+      setImportBusy(false);
+    }
+  }
 
   const runValidation = useCallback((): FieldErrors => {
     const candidate = {
@@ -385,8 +560,8 @@ export function useProviderForm(t: Strings) {
   }
 
   /** Submit shows a diff preview first; the write happens on confirm. */
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(e?: { preventDefault(): void }) {
+    e?.preventDefault();
     setTouched(true);
     setOnboardDismissed(true);
     setResult(null);
@@ -446,7 +621,7 @@ export function useProviderForm(t: Strings) {
         notice: (data as { notice?: string | null }).notice ?? null,
       });
       setStatus("success");
-      await refreshAll();
+      await refreshAll({ quietMtime: true });
     } catch {
       setErrors({ _form: t.networkError });
       setStatus("error");
@@ -516,7 +691,7 @@ export function useProviderForm(t: Strings) {
       } else {
         setErrors({ _form: t.fixed(data.fixed ?? "") });
         setStatus("error");
-        await refreshAll();
+        await refreshAll({ quietMtime: true });
       }
     } catch {
       setErrors({ _form: t.networkError });
@@ -545,7 +720,7 @@ export function useProviderForm(t: Strings) {
         setStatus("error");
         return;
       }
-      await refreshAll();
+      await refreshAll({ quietMtime: true });
       const p = (
         (await (await fetch("/api/current-config")).json()) as {
           providers?: ProviderSummary[];
@@ -613,7 +788,7 @@ export function useProviderForm(t: Strings) {
         setDeleting("idle");
         return;
       }
-      await refreshAll();
+      await refreshAll({ quietMtime: true });
       reset();
       setErrors({
         _form: data.clearedActiveModel
@@ -646,7 +821,7 @@ export function useProviderForm(t: Strings) {
         setErrors(data.errors ?? { _form: t.restoreFailed });
         setStatus("error");
       } else {
-        await refreshAll();
+        await refreshAll({ quietMtime: true });
         reset();
         setErrors({ _form: t.restored(data.model ?? t.none) });
         setStatus("error");
@@ -695,6 +870,11 @@ export function useProviderForm(t: Strings) {
     onboardDismissed,
     backups,
     restoring,
+    gates,
+    externalChanged,
+    bulkSel,
+    bulkBusy,
+    importBusy,
     preview,
     previewing,
     promptState,
@@ -740,6 +920,15 @@ export function useProviderForm(t: Strings) {
     undoLast,
     confirmDelete,
     restore,
+    setGate,
+    gateOfSelected,
+    toggleBulk,
+    clearBulk: () => setBulkSel([]),
+    deleteBulk,
+    exportPack,
+    importPackFile,
+    dismissExternal,
+    hideExternal,
     reset,
   };
 }
