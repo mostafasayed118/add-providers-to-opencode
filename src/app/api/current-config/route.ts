@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { promises as fs } from "node:fs";
 import { getGlobalConfigPath, listProviders } from "@/lib/opencode-config";
 
 export const dynamic = "force-dynamic";
@@ -6,7 +7,6 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const configPath = getGlobalConfigPath();
   try {
-    const { promises: fs } = await import("node:fs");
     let model: string | null = null;
     let exists = true;
     try {

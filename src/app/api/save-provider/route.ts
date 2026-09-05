@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const raw = (body ?? {}) as Record<string, unknown>;
+  const raw = { ...((body ?? {}) as Record<string, unknown>) };
   // Blank key on an existing provider = keep the stored key.
   if (typeof raw.api_key !== "string" || raw.api_key.trim() === "") {
     const effId =

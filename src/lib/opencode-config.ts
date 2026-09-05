@@ -1,102 +1,18 @@
-import { z } from "zod";
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
+import {
+  providerSchema,
+  type ProviderInput,
+  type ProviderSummary,
+} from "./provider-schema";
 
-const LOCAL_HOSTS = /^(localhost|127\.0\.0\.1|\[::1\]|.*\.local|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/i;
-
-function isAllowedUrl(raw: string): boolean {
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (u.protocol === "https:") return true;
-  if (u.protocol === "http:") {
-    return LOCAL_HOSTS.test(u.hostname);
-  }
-  return false;
-}
-
-export const providerSchema = z.object({
-  base_url: z
-    .string()
-    .trim()
-    .min(1, "base_url is required")
-    .max(2048, "base_url is too long")
-    .refine((v) => {
-      try {
-        new URL(v);
-        return true;
-      } catch {
-        return false;
-      }
-    }, "base_url must be a valid URL (e.g. https://api.example.com/v1)")
-    .refine((v) => isAllowedUrl(v), {
-      message:
-        "base_url must use https, except http://localhost / 127.0.0.1 / .local / private LAN",
-    })
-    .transform((v) => v.replace(/\/+$/, "")),
-  api_key: z
-    .string()
-    .trim()
-    .min(8, "api_key must be at least 8 characters")
-    .max(4096, "api_key is too long")
-    .refine((v) => v.length > 0, "api_key is required"),
-  model_id: z
-    .string()
-    .trim()
-    .min(1, "model_id is required")
-    .max(128, "model_id is too long")
-    .regex(
-      /^[A-Za-z0-9._:/-]{1,128}$/,
-      "model_id may only contain letters, numbers, . _ : / - (no spaces)"
-    ),
-  providerType: z.enum(["openai-compatible", "custom"], {
-    errorMap: () => ({ message: "Choose OpenAI-compatible or custom" }),
-  }),
-  providerId: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .min(1, "provider id is required for custom")
-    .max(32)
-    .regex(/^[a-z0-9-]{1,32}$/, "provider id: lowercase letters, numbers, dash only")
-    .default("custom"),
-  context_limit: z.preprocess(
-    (v) => (v === "" || v === null ? undefined : v),
-    z.coerce.number().int("context limit must be a whole number").positive("context limit must be positive").max(10000000, "context limit is too large").optional()
-  ),
-  output_limit: z.preprocess(
-    (v) => (v === "" || v === null ? undefined : v),
-    z.coerce.number().int("output limit must be a whole number").positive("output limit must be positive").max(10000000, "output limit is too large").optional()
-  ),
-  tool_call: z.coerce.boolean().default(true),
-  reasoning: z.coerce.boolean().default(false),
-  attachment: z.coerce.boolean().default(false),
-});
-
-export type ProviderInput = z.infer<typeof providerSchema>;
+export { providerSchema, toFieldErrors } from "./provider-schema";
+export type { FieldErrors, ProviderInput, ProviderSummary } from "./provider-schema";
 
 export function getGlobalConfigPath(): string {
   return path.join(os.homedir(), ".config", "opencode", "opencode.json");
 }
-
-export type ProviderSummary = {
-  id: string;
-  name: string | null;
-  baseURL: string | null;
-  hasKey: boolean;
-  models: Array<{
-    id: string;
-    name: string | null;
-    tool_call: boolean;
-    reasoning: boolean;
-    attachment: boolean;
-    limit: { context?: number; output?: number } | null;
-  }>;
-};
 
 export async function listProviders(configPath: string): Promise<ProviderSummary[]> {
   const existing = await readExistingConfig(configPath);
@@ -177,7 +93,7 @@ export async function readExistingConfig(
   }
 }
 
-export function buildProviderBlock(input: ProviderInput): {
+export function buildProviderBlock(input: ProviderInput & { api_key: string }): {
   providerId: string;
   entry: Record<string, unknown>;
   model: string;
@@ -216,16 +132,18 @@ export function buildProviderBlock(input: ProviderInput): {
   return { providerId, entry, model: `${providerId}/${input.model_id}` };
 }
 
-function redact(_value: string): string {
-  return "****";
-}
-
 export async function saveProviderConfig(input: ProviderInput): Promise<{
   path: string;
   model: string;
   backup: string | null;
 }> {
   const parsed = providerSchema.parse(input);
+  const apiKey = parsed.api_key;
+  if (!apiKey) {
+    // The save route fills a blank key from the stored provider before calling
+    // here; reaching this means a programming error, not user input.
+    throw new Error("api_key is required to save a provider.");
+  }
   const configPath = getGlobalConfigPath();
   await fs.mkdir(path.dirname(configPath), { recursive: true });
   const existing = await readExistingConfig(configPath);
@@ -239,7 +157,7 @@ export async function saveProviderConfig(input: ProviderInput): Promise<{
     backup = null;
   }
 
-  const { providerId, entry, model } = buildProviderBlock(parsed);
+  const { providerId, entry, model } = buildProviderBlock({ ...parsed, api_key: apiKey });
   const existingProvider =
     (existing.provider as Record<string, unknown> | undefined) ?? {};
   const next = {
@@ -258,6 +176,5 @@ export async function saveProviderConfig(input: ProviderInput): Promise<{
   if ((verify as { model?: unknown }).model !== model) {
     throw new Error("Write verification failed: model mismatch after save.");
   }
-  void redact;
   return { path: configPath, model, backup };
 }

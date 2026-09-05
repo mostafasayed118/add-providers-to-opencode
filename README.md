@@ -8,6 +8,7 @@ running `opencode` reflects it automatically.
 
 ```bash
 npm install
+npm test      # 18 unit + integration tests (isolated temp home, real config untouched)
 npm run dev
 # open http://localhost:3000
 ```
