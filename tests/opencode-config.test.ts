@@ -38,6 +38,8 @@ test("buildProviderBlock writes modalities, limits and model ref", () => {
     tool_call: true,
     reasoning: false,
     attachment: true,
+    keyStorage: "inline",
+    headers: [],
   });
   assert.equal(providerId, "demo");
   assert.equal(model, "demo/m1");
@@ -58,6 +60,8 @@ test("buildProviderBlock omits image modality when attachment is false", () => {
     tool_call: true,
     reasoning: false,
     attachment: false,
+    keyStorage: "inline",
+    headers: [],
   });
   const models = entry.models as Record<string, Record<string, unknown>>;
   assert.deepEqual(models.m1.modalities, { input: ["text"], output: ["text"] });
@@ -292,6 +296,108 @@ test("corrupt config throws and preserves a .corrupt copy", async () => {
   assert.equal(corrupt.length >= 1, true);
   // Restore a valid file so later tests (none) are unaffected.
   await fs.writeFile(cfgPath(), JSON.stringify({ provider: {}, model: null }), "utf8");
+});
+
+test("parseKeyRef detects env and file references", async () => {
+  const { parseKeyRef } = await import("../src/lib/opencode-config");
+  assert.deepEqual(parseKeyRef("{env:MY_KEY}"), { kind: "env", name: "MY_KEY" });
+  assert.deepEqual(parseKeyRef("{file:/tmp/k}"), { kind: "file", name: "/tmp/k" });
+  assert.equal(parseKeyRef("sk-plain"), null);
+});
+
+test("writeKeyFile stores the exact secret", async () => {
+  const { writeKeyFile } = await import("../src/lib/opencode-config");
+  const kp = path.join(tmpHome, "keys", "demo.key");
+  await writeKeyFile(kp, "sk-file-secret");
+  assert.equal(await fs.readFile(kp, "utf8"), "sk-file-secret");
+});
+
+test("buildProviderBlock writes headers and interleaved field", () => {
+  const { entry } = buildProviderBlock({
+    base_url: "https://api.example.com/v1",
+    api_key: "sk-test-12345678",
+    model_id: "m1",
+    providerType: "custom",
+    providerId: "hdr",
+    context_limit: undefined,
+    output_limit: undefined,
+    tool_call: true,
+    reasoning: true,
+    reasoning_field: "reasoning_content",
+    attachment: false,
+    keyStorage: "inline",
+    headers: [{ name: "X-Tier", value: "fast" }],
+  });
+  assert.deepEqual((entry.options as Record<string, unknown>).headers, {
+    "X-Tier": "fast",
+  });
+  const models = entry.models as Record<string, Record<string, unknown>>;
+  assert.equal(models.m1.interleaved, "reasoning_content");
+});
+
+test("small_model is set when provided and kept otherwise", async () => {
+  await saveProviderConfig({
+    base_url: "https://api.example.com/v1",
+    api_key: "sk-test-12345678",
+    model_id: "m1",
+    providerType: "custom",
+    providerId: "small",
+    context_limit: undefined,
+    output_limit: undefined,
+    tool_call: true,
+    reasoning: false,
+    attachment: false,
+    small_model: "small/cheap-x",
+  });
+  let raw = await readRaw();
+  assert.equal(raw.small_model, "small/cheap-x");
+  await saveProviderConfig({
+    base_url: "https://api.example.com/v1",
+    api_key: "sk-test-12345678",
+    model_id: "m1",
+    providerType: "custom",
+    providerId: "small",
+    context_limit: undefined,
+    output_limit: undefined,
+    tool_call: true,
+    reasoning: false,
+    attachment: false,
+    small_model: undefined,
+  });
+  raw = await readRaw();
+  assert.equal(raw.small_model, "small/cheap-x");
+});
+
+test("backups can be listed and restored", async () => {
+  const { listBackups, restoreBackup } = await import("../src/lib/opencode-config");
+  const before = await listBackups(cfgPath());
+  assert.ok(before.length >= 1);
+  assert.equal(before[0].kind, "backup");
+  const first = await readRaw();
+  await saveProviderConfig({
+    base_url: "https://changed.example.com/v1",
+    api_key: "sk-test-12345678",
+    model_id: "m1",
+    providerType: "custom",
+    providerId: "small",
+    context_limit: undefined,
+    output_limit: undefined,
+    tool_call: true,
+    reasoning: false,
+    attachment: false,
+  });
+  const target = (await listBackups(cfgPath())).find((b) => b.kind === "backup");
+  assert.ok(target);
+  const res = await restoreBackup(cfgPath(), target.file);
+  const restored = await readRaw();
+  assert.equal(restored.provider.small.options.baseURL, first.provider.small.options.baseURL);
+  assert.equal(typeof res.model, "string");
+});
+
+test("restore rejects unrecognized filenames", async () => {
+  const { restoreBackup } = await import("../src/lib/opencode-config");
+  await assert.rejects(restoreBackup(cfgPath(), "../opencode.json"), /unrecognized/);
+  await assert.rejects(restoreBackup(cfgPath(), "opencode.json"), /unrecognized/);
 });
 
 test("cleanup temp home", () => {

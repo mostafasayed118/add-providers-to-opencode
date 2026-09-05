@@ -69,12 +69,16 @@ export async function listProviders(configPath: string): Promise<ProviderSummary
     const prov = (p ?? {}) as Record<string, unknown>;
     const options = (prov.options ?? {}) as Record<string, unknown>;
     const models = (prov.models ?? {}) as Record<string, unknown>;
+    const apiKey = options.apiKey;
+    const headers = (options.headers ?? {}) as Record<string, unknown>;
     return {
       id,
       name: typeof prov.name === "string" ? prov.name : null,
       baseURL: typeof options.baseURL === "string" ? options.baseURL : null,
       hasKey:
-        typeof options.apiKey === "string" && options.apiKey.length > 0,
+        typeof apiKey === "string" && apiKey.length > 0,
+      keyRef: typeof apiKey === "string" ? parseKeyRef(apiKey) : null,
+      headerNames: Object.keys(headers).filter((k) => typeof headers[k] === "string"),
       models: Object.entries(models).map(([mid, m]) => {
         const mm = (m ?? {}) as Record<string, unknown>;
         const limit = (mm.limit ?? null) as { context?: unknown; output?: unknown } | null;
@@ -85,12 +89,21 @@ export async function listProviders(configPath: string): Promise<ProviderSummary
         const modalityInputs = Array.isArray(modalities?.input)
           ? (modalities.input as unknown[]).filter((x): x is string => typeof x === "string")
           : [];
+        const interleaved = (mm as Record<string, unknown>).interleaved;
         return {
           id: mid,
           name: typeof mm.name === "string" ? mm.name : null,
           tool_call: mm.tool_call === true,
           reasoning: mm.reasoning === true,
           attachment: mm.attachment === true || modalityInputs.includes("image"),
+          interleaved:
+            typeof interleaved === "string"
+              ? interleaved
+              : typeof interleaved === "object" &&
+                  interleaved !== null &&
+                  typeof (interleaved as Record<string, unknown>).field === "string"
+                ? ((interleaved as Record<string, unknown>).field as string)
+                : null,
           limit:
             limit && typeof limit === "object"
               ? {
@@ -115,6 +128,119 @@ export async function getStoredApiKey(
   return typeof options.apiKey === "string" && options.apiKey.length > 0
     ? options.apiKey
     : null;
+}
+
+export type KeyRef = { kind: "env" | "file"; name: string } | null;
+
+export type BackupInfo = {
+  file: string;
+  kind: "backup" | "corrupt";
+  bytes: number;
+  mtimeMs: number;
+};
+
+/** List timestamped backups + corrupt copies next to the config. Newest first. */
+export async function listBackups(configPath: string): Promise<BackupInfo[]> {
+  const dir = path.dirname(configPath);
+  const base = path.basename(configPath);
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const out: BackupInfo[] = [];
+  for (const name of names) {
+    const m = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(bak\\.\\d+|corrupt-\\d+)$`).exec(name);
+    if (!m) continue;
+    try {
+      const stat = await fs.stat(path.join(dir, name));
+      out.push({
+        file: name,
+        kind: m[1].startsWith("bak.") ? "backup" : "corrupt",
+        bytes: stat.size,
+        mtimeMs: stat.mtimeMs,
+      });
+    } catch {
+      // Vanished mid-listing; skip.
+    }
+  }
+  return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+const BACKUP_NAME = /^opencode\.json\.(bak\.\d+|corrupt-\d+)$/;
+
+/** Restore a backup over the live config (after backing up the live file). */
+export async function restoreBackup(
+  configPath: string,
+  file: string
+): Promise<{ model: string | null }> {
+  if (!BACKUP_NAME.test(file)) {
+    throw new Error("Refusing to restore an unrecognized file.");
+  }
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  return withConfigLock(configPath, async () => {
+    const src = path.join(path.dirname(configPath), file);
+    let raw: string;
+    try {
+      raw = await fs.readFile(src, "utf8");
+    } catch {
+      throw new Error("Backup file no longer exists.");
+    }
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      throw new Error("Backup is not valid JSON; live config left untouched.");
+    }
+    try {
+      await fs.access(configPath);
+      await fs.copyFile(configPath, `${configPath}.bak.${Date.now()}`);
+    } catch {
+      // No live file yet; nothing to preserve.
+    }
+    const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
+    await fs.writeFile(tmp, raw.endsWith("\n") ? raw : raw + "\n", "utf8");
+    await fs.rename(tmp, configPath);
+    const model = (parsed as { model?: unknown }).model;
+    return { model: typeof model === "string" ? model : null };
+  });
+}
+
+/** Detect opencode `{env:NAME}` / `{file:path}` secret references. */
+export function parseKeyRef(value: string): KeyRef {
+  const env = /^\{env:(.+)\}$/.exec(value.trim());
+  if (env) return { kind: "env", name: env[1] };
+  const file = /^\{file:(.+)\}$/.exec(value.trim());
+  if (file) return { kind: "file", name: file[1] };
+  return null;
+}
+
+/** Write a key file with owner-only permissions; no trailing newline. */
+export async function writeKeyFile(filePath: string, secret: string): Promise<void> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, secret, { encoding: "utf8", mode: 0o600 });
+  try {
+    await fs.chmod(filePath, 0o600);
+  } catch {
+    // Windows ACLs ignore POSIX modes; best effort only.
+  }
+}
+
+export async function getStoredHeaders(
+  configPath: string,
+  providerId: string
+): Promise<Record<string, string>> {
+  const existing = await readExistingConfig(configPath);
+  const providers = (existing.provider as Record<string, unknown> | undefined) ?? {};
+  const prov = (providers[providerId] ?? {}) as Record<string, unknown>;
+  const options = (prov.options ?? {}) as Record<string, unknown>;
+  const headers = (options.headers ?? {}) as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return out;
 }
 
 export async function readExistingConfig(
@@ -160,6 +286,9 @@ export function buildProviderBlock(input: ProviderInput & { api_key: string }): 
       output: ["text"],
     },
   };
+  // Streamed-thinking field for providers (e.g. GLM) that send reasoning in a
+  // custom message field. String form is accepted by opencode.
+  if (input.reasoning_field) modelEntry.interleaved = input.reasoning_field;
   if (input.context_limit != null || input.output_limit != null) {
     modelEntry.limit = {
       ...(input.context_limit != null ? { context: input.context_limit } : {}),
@@ -177,10 +306,16 @@ export function buildProviderBlock(input: ProviderInput & { api_key: string }): 
       [input.model_id]: modelEntry,
     },
   };
+  const headerEntries = (input.headers ?? []).filter((h) => h.name.trim() !== "");
+  if (headerEntries.length > 0) {
+    (entry.options as Record<string, unknown>).headers = Object.fromEntries(
+      headerEntries.map((h) => [h.name.trim(), h.value])
+    );
+  }
   return { providerId, entry, model: `${providerId}/${input.model_id}` };
 }
 
-export async function saveProviderConfig(input: ProviderInput): Promise<{
+export async function saveProviderConfig(input: unknown): Promise<{
   path: string;
   model: string;
   backup: string | null;
@@ -236,11 +371,14 @@ export async function saveProviderConfig(input: ProviderInput): Promise<{
     };
     // First save ever decides the npm package; keep a stored one if present.
     if (typeof prevEntry.npm === "string") nextEntry.npm = prevEntry.npm;
-    const next = {
+    const next: Record<string, unknown> = {
       ...existing,
       provider: { ...existingProviders, [providerId]: nextEntry },
       model,
     };
+    // small_model is opt-in: only overwrite when the form provided one,
+    // otherwise a blank field must not wipe the stored value.
+    if (parsed.small_model) next.small_model = parsed.small_model;
 
     const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
     await fs.writeFile(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");

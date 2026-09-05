@@ -1,33 +1,81 @@
 "use client";
 
+import { useState } from "react";
 import { CapabilityFieldset } from "@/components/CapabilityFieldset";
 import { Field, inputClass } from "@/components/form-fields";
 import { ProviderSelect } from "@/components/ProviderSelect";
 import { useProviderForm, type ProviderType } from "@/hooks/useProviderForm";
+import { strings, type Locale } from "@/i18n";
 
 const PROVIDER_TYPES = [
-  { v: "openai-compatible", t: "OpenAI-compatible", d: "Any OpenAI-style /v1 endpoint" },
-  { v: "custom", t: "Custom", d: "Custom provider id + same protocol" },
+  { v: "openai-compatible", tKey: "typeOpenAI", dKey: "typeOpenAIDesc" },
+  { v: "custom", tKey: "typeCustom", dKey: "typeCustomDesc" },
 ] as const;
 
+const STORAGE_OPTIONS = [
+  { v: "inline", tKey: "keyStorageInline", dKey: "keyStorageInlineDesc" },
+  { v: "env", tKey: "keyStorageEnv", dKey: "keyStorageEnvDesc" },
+  { v: "file", tKey: "keyStorageFile", dKey: "keyStorageFileDesc" },
+] as const;
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
 export default function Home() {
-  const form = useProviderForm();
+  const [locale, setLocale] = useState<Locale>("en");
+  const t = strings[locale];
+  const form = useProviderForm(t);
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center px-4 py-10">
+    <main
+      dir={t.dir}
+      className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center px-4 py-10"
+    >
       <div className="rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200 sm:p-8">
-        <header className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Opencode Provider Setup
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Enter your endpoint, key, and model. On submit we validate and
-            write the global opencode config automatically.
-          </p>
+        <header className="mb-6 flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">{t.title}</h1>
+            <p className="mt-1 text-sm text-slate-600">{t.subtitle}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLocale((l) => (l === "en" ? "ar" : "en"))}
+            className="shrink-0 rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold hover:bg-slate-50"
+          >
+            {t.toggleLang}
+          </button>
         </header>
+
+        {form.showOnboarding && (
+          <div role="status" className="mb-5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+            <p>{t.onboarding(form.providers.length, form.activeModel)}</p>
+            <div className="mt-2 flex gap-2">
+              {form.activeModel && (
+                <button
+                  type="button"
+                  onClick={form.loadActiveModel}
+                  className="rounded-lg bg-blue-600 px-3 py-1 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  {t.loadActive}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => form.setOnboardDismissed(true)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-medium hover:bg-slate-50"
+              >
+                {t.startFresh}
+              </button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={form.submit} noValidate className="space-y-5">
           <ProviderSelect
+            t={t}
             providers={form.providers}
             selected={form.selected}
             onChange={form.handleSelectChange}
@@ -36,7 +84,7 @@ export default function Home() {
           {form.selectedProvider && form.selectedProvider.models.length > 0 && (
             <div>
               <label htmlFor="model_sel" className="mb-1 block text-sm font-medium">
-                Model to edit
+                {t.modelToEdit}
               </label>
               <select
                 id="model_sel"
@@ -49,16 +97,14 @@ export default function Home() {
                     {m.id}
                   </option>
                 ))}
-                <option value="__new_model">+ New model…</option>
+                <option value="__new_model">{t.newModel}</option>
               </select>
-              <p className="mt-1 text-xs text-slate-500">
-                Other models on this provider are left untouched.
-              </p>
+              <p className="mt-1 text-xs text-slate-500">{t.otherModelsKept}</p>
             </div>
           )}
 
           <fieldset>
-            <legend className="mb-2 text-sm font-medium">Provider type</legend>
+            <legend className="mb-2 text-sm font-medium">{t.providerType}</legend>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {PROVIDER_TYPES.map((o) => (
                 <label
@@ -77,15 +123,15 @@ export default function Home() {
                     onChange={() => form.setProviderType(o.v as ProviderType)}
                     className="mr-2 accent-blue-600"
                   />
-                  <span className="font-medium">{o.t}</span>
-                  <span className="block text-xs text-slate-500">{o.d}</span>
+                  <span className="font-medium">{t[o.tKey]}</span>
+                  <span className="block text-xs text-slate-500">{t[o.dKey]}</span>
                 </label>
               ))}
             </div>
           </fieldset>
 
           {form.providerType === "custom" && (
-            <Field label="Provider ID" htmlFor="providerId" error={form.errors.providerId}>
+            <Field label={t.providerId} htmlFor="providerId" error={form.errors.providerId}>
               <input
                 id="providerId"
                 value={form.providerId}
@@ -100,14 +146,10 @@ export default function Home() {
           )}
 
           <Field
-            label="Base URL"
+            label={t.baseUrl}
             htmlFor="base_url"
             error={form.errors.base_url}
-            hint={
-              form.errors.base_url
-                ? undefined
-                : "https required, except localhost / LAN."
-            }
+            hint={form.errors.base_url ? undefined : t.baseUrlHint}
           >
             <input
               id="base_url"
@@ -123,12 +165,12 @@ export default function Home() {
           </Field>
 
           <Field
-            label="API Key"
+            label={t.apiKey}
             htmlFor="api_key"
             error={form.errors.api_key}
             hint={
               !form.errors.api_key && form.selectedProvider?.hasKey
-                ? "Leave blank to keep the stored key, or type a new one to replace it."
+                ? t.keepKeyHint
                 : undefined
             }
           >
@@ -151,12 +193,69 @@ export default function Home() {
                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
                 aria-pressed={form.showKey}
               >
-                {form.showKey ? "Hide" : "Show"}
+                {form.showKey ? t.hide : t.show}
               </button>
             </div>
           </Field>
 
-          <Field label="Model ID" htmlFor="model_id" error={form.errors.model_id}>
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium">{t.keyStorage}</legend>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {STORAGE_OPTIONS.map((o) => (
+                <label
+                  key={o.v}
+                  className={`cursor-pointer rounded-lg border px-3 py-2 text-sm ${
+                    form.keyStorage === o.v
+                      ? "border-blue-600 bg-blue-50"
+                      : "border-slate-300 hover:border-slate-400"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="keyStorage"
+                    value={o.v}
+                    checked={form.keyStorage === o.v}
+                    onChange={() => form.setKeyStorage(o.v)}
+                    className="mr-2 accent-blue-600"
+                  />
+                  <span className="font-medium">{t[o.tKey]}</span>
+                  <span className="block text-xs text-slate-500">{t[o.dKey]}</span>
+                </label>
+              ))}
+            </div>
+            {form.keyStorage === "env" && (
+              <div className="mt-2">
+                <Field label={t.keyEnvName} htmlFor="key_env_name">
+                  <input
+                    id="key_env_name"
+                    placeholder="RUNINFRA_API_KEY"
+                    value={form.keyEnvName}
+                    onChange={(e) => form.setKeyEnvName(e.target.value)}
+                    autoComplete="off"
+                    dir="ltr"
+                    className={inputClass(false)}
+                  />
+                </Field>
+              </div>
+            )}
+            {form.keyStorage === "file" && (
+              <div className="mt-2">
+                <Field label={t.keyFile} htmlFor="key_file">
+                  <input
+                    id="key_file"
+                    placeholder="~/.config/opencode/keys/testyy.key"
+                    value={form.keyFile}
+                    onChange={(e) => form.setKeyFile(e.target.value)}
+                    autoComplete="off"
+                    dir="ltr"
+                    className={inputClass(false)}
+                  />
+                </Field>
+              </div>
+            )}
+          </fieldset>
+
+          <Field label={t.modelId} htmlFor="model_id" error={form.errors.model_id}>
             <input
               id="model_id"
               list="model-suggestions"
@@ -186,7 +285,7 @@ export default function Home() {
               disabled={form.testing === "testing"}
               className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {form.testing === "testing" ? "Testing…" : "Test connection"}
+              {form.testing === "testing" ? t.testing : t.testConnection}
             </button>
             {form.testMsg && (
               <p
@@ -201,12 +300,14 @@ export default function Home() {
           </div>
 
           <CapabilityFieldset
+            t={t}
             values={{
               contextLimit: form.contextLimit,
               outputLimit: form.outputLimit,
               toolCall: form.toolCall,
               reasoning: form.reasoning,
               attachment: form.attachment,
+              reasoningField: form.reasoningField,
             }}
             errors={form.errors}
             onChange={(patch) => {
@@ -215,8 +316,85 @@ export default function Home() {
               if (patch.toolCall !== undefined) form.setToolCall(patch.toolCall);
               if (patch.reasoning !== undefined) form.setReasoning(patch.reasoning);
               if (patch.attachment !== undefined) form.setAttachment(patch.attachment);
+              if (patch.reasoningField !== undefined) form.setReasoningField(patch.reasoningField);
             }}
           />
+
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium">{t.headers}</legend>
+            <p className="mb-2 text-xs text-slate-500">{t.headersHint}</p>
+            <div className="space-y-2">
+              {form.headerRows.map((row, i) => (
+                <div key={i} className="flex gap-2">
+                  <input
+                    aria-label={t.headerName}
+                    placeholder={t.headerName}
+                    value={row.name}
+                    onChange={(e) =>
+                      form.setHeaderRows(
+                        form.headerRows.map((r, j) =>
+                          j === i ? { ...r, name: e.target.value } : r
+                        )
+                      )
+                    }
+                    autoComplete="off"
+                    dir="ltr"
+                    className={inputClass(false)}
+                  />
+                  <input
+                    aria-label={t.headerValue}
+                    placeholder={t.headerValue}
+                    type="password"
+                    value={row.value}
+                    onChange={(e) =>
+                      form.setHeaderRows(
+                        form.headerRows.map((r, j) =>
+                          j === i ? { ...r, value: e.target.value } : r
+                        )
+                      )
+                    }
+                    autoComplete="off"
+                    dir="ltr"
+                    className={inputClass(false)}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Remove"
+                    onClick={() =>
+                      form.setHeaderRows(form.headerRows.filter((_, j) => j !== i))
+                    }
+                    className="shrink-0 rounded-lg border border-slate-300 px-3 text-sm hover:bg-slate-50"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => form.setHeaderRows([...form.headerRows, { name: "", value: "" }])}
+                className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium hover:bg-slate-50"
+              >
+                {t.addHeader}
+              </button>
+            </div>
+          </fieldset>
+
+          <Field
+            label={t.smallModel}
+            htmlFor="small_model"
+            error={form.errors.small_model}
+            hint={t.smallModelHint(form.storedSmallModel)}
+          >
+            <input
+              id="small_model"
+              placeholder="provider/model"
+              value={form.smallModel}
+              onChange={(e) => form.setSmallModel(e.target.value)}
+              autoComplete="off"
+              dir="ltr"
+              className={inputClass(false)}
+            />
+          </Field>
 
           {form.errors._form && (
             <div
@@ -232,12 +410,13 @@ export default function Home() {
               role="status"
               className="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-900"
             >
-              <p className="font-medium">Saved. Opencode will use it automatically.</p>
-              <p className="mt-1 break-all">Model: {form.result.model}</p>
-              <p className="break-all">File: {form.result.path}</p>
+              <p className="font-medium">{t.saved}</p>
+              <p className="mt-1 break-all">{t.savedModel(form.result.model)}</p>
+              <p className="break-all">{t.savedFile(form.result.path)}</p>
               {form.result.backup && (
-                <p className="break-all">Backup: {form.result.backup}</p>
+                <p className="break-all">{t.savedBackup(form.result.backup)}</p>
               )}
+              {form.result.notice && <p className="mt-1 break-all">{form.result.notice}</p>}
             </div>
           )}
 
@@ -247,21 +426,21 @@ export default function Home() {
               disabled={form.status === "saving"}
               className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {form.status === "saving" ? "Saving…" : "Submit & Apply to Opencode"}
+              {form.status === "saving" ? t.saving : t.submit}
             </button>
             <button
               type="button"
               onClick={form.loadCurrent}
               className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-50"
             >
-              Load current
+              {t.loadCurrent}
             </button>
             <button
               type="button"
               onClick={form.reset}
               className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-50"
             >
-              Reset
+              {t.reset}
             </button>
           </div>
 
@@ -270,21 +449,21 @@ export default function Home() {
               {form.deleting === "confirm" ? (
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <p className="flex-1 text-sm text-red-900">
-                    Delete provider “{form.selectedProvider.id}” and all its models?
+                    {t.deleteConfirm(form.selectedProvider.id)}
                   </p>
                   <button
                     type="button"
                     onClick={form.confirmDelete}
                     className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
                   >
-                    Yes, delete
+                    {t.deleteYes}
                   </button>
                   <button
                     type="button"
                     onClick={() => form.setDeleting("idle")}
                     className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50"
                   >
-                    Cancel
+                    {t.cancel}
                   </button>
                 </div>
               ) : (
@@ -295,17 +474,49 @@ export default function Home() {
                   className="text-sm font-medium text-red-700 hover:text-red-900 disabled:opacity-60"
                 >
                   {form.deleting === "busy"
-                    ? "Deleting…"
-                    : `Delete provider “${form.selectedProvider.id}”…`}
+                    ? t.deleting
+                    : t.deleteProvider(form.selectedProvider.id)}
                 </button>
               )}
             </div>
           )}
         </form>
       </div>
-      <p className="mt-4 text-center text-xs text-slate-500">
-        Writes global ~/.config/opencode/opencode.json and sets top-level model.
-      </p>
+
+      <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200 sm:p-8">
+        <h2 className="text-lg font-semibold">{t.backups}</h2>
+        <p className="mt-1 text-sm text-slate-600">{t.backupsHint}</p>
+        {form.backups.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">{t.noBackups}</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {form.backups.slice(0, 10).map((b) => (
+              <li
+                key={b.file}
+                className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              >
+                <span className="flex-1 break-all">
+                  <span dir="ltr" className="inline-block">{b.file}</span>{" "}
+                  <span className="text-xs text-slate-500">
+                    ({formatBytes(b.bytes)}
+                    {b.kind === "corrupt" ? `, ${t.corruptBadge}` : ""})
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  disabled={form.restoring !== null}
+                  onClick={() => form.restore(b.file)}
+                  className="shrink-0 rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+                >
+                  {form.restoring === b.file ? t.restoring : t.restore}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <p className="mt-4 text-center text-xs text-slate-500">{t.footer}</p>
     </main>
   );
 }

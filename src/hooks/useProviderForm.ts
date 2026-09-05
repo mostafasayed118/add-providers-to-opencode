@@ -5,14 +5,29 @@ import {
   type FieldErrors,
   type ProviderSummary,
 } from "@/lib/provider-schema";
+import type { Strings } from "@/i18n";
 
 export type ProviderType = "openai-compatible" | "custom";
 
-export type SaveSuccess = { path: string; model: string; backup: string | null };
+export type SaveSuccess = {
+  path: string;
+  model: string;
+  backup: string | null;
+  notice: string | null;
+};
 
 export type FormStatus = "idle" | "saving" | "success" | "error";
 
-export function useProviderForm() {
+export type HeaderRow = { name: string; value: string };
+
+export type BackupRow = {
+  file: string;
+  kind: "backup" | "corrupt";
+  bytes: number;
+  mtimeMs: number;
+};
+
+export function useProviderForm(t: Strings) {
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [modelId, setModelId] = useState("");
@@ -23,6 +38,13 @@ export function useProviderForm() {
   const [toolCall, setToolCall] = useState(true);
   const [reasoning, setReasoning] = useState(false);
   const [attachment, setAttachment] = useState(false);
+  const [reasoningField, setReasoningField] = useState<string>("");
+  const [keyStorage, setKeyStorage] = useState<"inline" | "env" | "file">("inline");
+  const [keyEnvName, setKeyEnvName] = useState("");
+  const [keyFile, setKeyFile] = useState("");
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
+  const [smallModel, setSmallModel] = useState("");
+  const [storedSmallModel, setStoredSmallModel] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [selected, setSelected] = useState<string>("__new");
   const [modelSel, setModelSel] = useState<string>("__new_model");
@@ -36,23 +58,49 @@ export function useProviderForm() {
   const [testMsg, setTestMsg] = useState<string | null>(null);
   const [discovered, setDiscovered] = useState<string[]>([]);
   const [deleting, setDeleting] = useState<"idle" | "confirm" | "busy">("idle");
+  const [activeModel, setActiveModel] = useState<string | null>(null);
+  const [onboardDismissed, setOnboardDismissed] = useState(false);
+  const [backups, setBackups] = useState<BackupRow[]>([]);
+  const [restoring, setRestoring] = useState<string | null>(null);
 
   const selectedProvider = providers.find((p) => p.id === selected) ?? null;
   // Blank key is only acceptable when editing a provider that already has one.
   const requireKey = !selectedProvider?.hasKey;
+  const showOnboarding =
+    !onboardDismissed && !touched && !result && providers.length > 0 && selected === "__new";
 
   async function refreshProviders() {
     try {
       const res = await fetch("/api/current-config");
-      const d = (await res.json()) as { ok: boolean; providers?: ProviderSummary[] };
-      if (d.ok && Array.isArray(d.providers)) setProviders(d.providers);
+      const d = (await res.json()) as {
+        ok: boolean;
+        providers?: ProviderSummary[];
+        model?: string | null;
+        smallModel?: string | null;
+      };
+      if (d.ok) {
+        if (Array.isArray(d.providers)) setProviders(d.providers);
+        setActiveModel(d.model ?? null);
+        setStoredSmallModel(d.smallModel ?? null);
+      }
     } catch {
       // Dropdown stays empty; form still works for new providers.
     }
   }
 
+  async function refreshBackups() {
+    try {
+      const res = await fetch("/api/backups");
+      const d = (await res.json()) as { ok: boolean; backups?: BackupRow[] };
+      if (d.ok && Array.isArray(d.backups)) setBackups(d.backups);
+    } catch {
+      // Backup list is best-effort.
+    }
+  }
+
   useEffect(() => {
     void refreshProviders();
+    void refreshBackups();
   }, []);
 
   const runValidation = useCallback((): FieldErrors => {
@@ -67,12 +115,28 @@ export function useProviderForm() {
       tool_call: toolCall,
       reasoning,
       attachment,
+      reasoning_field: reasoningField ? reasoningField : undefined,
+      keyStorage,
+      keyEnvName: keyEnvName.trim() ? keyEnvName.trim() : undefined,
+      keyFile: keyFile.trim() ? keyFile.trim() : undefined,
+      headers: headerRows
+        .filter((r) => r.name.trim() !== "")
+        .map((r) => ({ name: r.name.trim(), value: r.value })),
+      small_model: smallModel.trim() ? smallModel.trim() : undefined,
     };
     const next = toFieldErrors(providerSchema.safeParse(candidate));
     if (requireKey) {
-      if (!apiKey.trim()) next.api_key = "api_key is required.";
+      if (!apiKey.trim()) next.api_key = t.apiKeyRequired;
     } else {
       delete next.api_key;
+    }
+    if (keyStorage !== "inline" && apiKey.trim()) {
+      if (keyStorage === "env" && !keyEnvName.trim()) {
+        next._form = t.keyEnvNameRequired;
+      }
+      if (keyStorage === "file" && !keyFile.trim()) {
+        next._form = t.keyFileRequired;
+      }
     }
     setErrors(next);
     return next;
@@ -87,7 +151,14 @@ export function useProviderForm() {
     toolCall,
     reasoning,
     attachment,
+    reasoningField,
+    keyStorage,
+    keyEnvName,
+    keyFile,
+    headerRows,
+    smallModel,
     requireKey,
+    t,
   ]);
 
   function loadModel(p: ProviderSummary, modelId: string | null) {
@@ -98,8 +169,28 @@ export function useProviderForm() {
     setToolCall(m?.tool_call ?? true);
     setReasoning(m?.reasoning ?? false);
     setAttachment(m?.attachment ?? false);
+    setReasoningField(
+      m?.interleaved === "reasoning" ||
+        m?.interleaved === "reasoning_content" ||
+        m?.interleaved === "reasoning_text"
+        ? m.interleaved
+        : ""
+    );
     setContextLimit(m?.limit?.context != null ? String(m.limit.context) : "");
     setOutputLimit(m?.limit?.output != null ? String(m.limit.output) : "");
+    if (p.keyRef?.kind === "env") {
+      setKeyStorage("env");
+      setKeyEnvName(p.keyRef.name);
+      setKeyFile("");
+    } else if (p.keyRef?.kind === "file") {
+      setKeyStorage("file");
+      setKeyFile(p.keyRef.name);
+      setKeyEnvName("");
+    } else {
+      setKeyStorage("inline");
+      setKeyEnvName("");
+    }
+    setHeaderRows(p.headerNames.map((name) => ({ name, value: "" })));
     setErrors({});
     setResult(null);
     setStatus("idle");
@@ -114,6 +205,7 @@ export function useProviderForm() {
     setApiKey("");
     setTestMsg(null);
     setTesting("idle");
+    setOnboardDismissed(true);
     loadModel(p, p.models[0]?.id ?? null);
   }
 
@@ -131,6 +223,12 @@ export function useProviderForm() {
     setToolCall(true);
     setReasoning(false);
     setAttachment(false);
+    setReasoningField("");
+    setKeyStorage("inline");
+    setKeyEnvName("");
+    setKeyFile("");
+    setHeaderRows([]);
+    setSmallModel("");
     setTesting("idle");
     setTestMsg(null);
     setDiscovered([]);
@@ -155,6 +253,23 @@ export function useProviderForm() {
     loadModel(selectedProvider, id === "__new_model" ? null : id);
   }
 
+  function loadActiveModel() {
+    if (!activeModel) return;
+    const slash = activeModel.indexOf("/");
+    if (slash < 0) return;
+    const pid = activeModel.slice(0, slash);
+    const mid = activeModel.slice(slash + 1);
+    const p = providers.find((x) => x.id === pid);
+    if (!p) return;
+    setSelected(p.id);
+    setProviderType(p.id === "custom" ? "openai-compatible" : "custom");
+    setProviderId(p.id);
+    setBaseUrl(p.baseURL ?? "");
+    setApiKey("");
+    setOnboardDismissed(true);
+    loadModel(p, p.models.some((m) => m.id === mid) ? mid : (p.models[0]?.id ?? null));
+  }
+
   async function testConnection() {
     setTesting("testing");
     setTestMsg(null);
@@ -173,59 +288,21 @@ export function useProviderForm() {
       if (data.ok) {
         setTesting("ok");
         setDiscovered(data.models ?? []);
-        setTestMsg(
-          `Reachable. ${data.count ?? 0} model${data.count === 1 ? "" : "s"} discovered — pick one from the Model ID suggestions.`
-        );
+        setTestMsg(t.testOk((data.models ?? []).length));
       } else {
         setTesting("error");
-        setTestMsg(data.error ?? "Connection failed.");
+        setTestMsg(data.error ?? t.testFailed);
       }
     } catch {
       setTesting("error");
-      setTestMsg("Network error. Is the app server running?");
-    }
-  }
-
-  async function confirmDelete() {
-    if (!selectedProvider || deleting === "busy") return;
-    setDeleting("busy");
-    try {
-      const res = await fetch("/api/delete-provider", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providerId: selectedProvider.id }),
-      });
-      const data = (await res.json()) as {
-        ok: boolean;
-        newModel?: string | null;
-        clearedActiveModel?: boolean;
-        errors?: FieldErrors;
-      };
-      if (!res.ok || !data.ok) {
-        setErrors(data.errors ?? { _form: "Delete failed." });
-        setStatus("error");
-        setDeleting("idle");
-        return;
-      }
-      await refreshProviders();
-      reset();
-      setErrors({
-        _form: data.clearedActiveModel
-          ? `Provider deleted. It was the active model; opencode now uses ${data.newModel ?? "(none)"}.`
-          : "Provider deleted.",
-      });
-      setStatus("error");
-      setDeleting("idle");
-    } catch {
-      setErrors({ _form: "Network error. Is the app server running?" });
-      setStatus("error");
-      setDeleting("idle");
+      setTestMsg(t.networkError);
     }
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setTouched(true);
+    setOnboardDismissed(true);
     setResult(null);
     if (Object.keys(runValidation()).length > 0) {
       setStatus("error");
@@ -251,20 +328,35 @@ export function useProviderForm() {
           tool_call: toolCall,
           reasoning,
           attachment,
+          ...(reasoningField ? { reasoning_field: reasoningField } : {}),
+          keyStorage,
+          ...(keyEnvName.trim() ? { keyEnvName: keyEnvName.trim() } : {}),
+          ...(keyFile.trim() ? { keyFile: keyFile.trim() } : {}),
+          headers: headerRows
+            .filter((r) => r.name.trim() !== "")
+            .map((r) => ({ name: r.name.trim(), value: r.value })),
+          ...(smallModel.trim() ? { small_model: smallModel.trim() } : {}),
         }),
       });
       const data = (await res.json()) as
         | (SaveSuccess & { ok: true })
         | { ok: false; errors: FieldErrors };
       if (!res.ok || !data.ok) {
-        setErrors((data as { errors?: FieldErrors }).errors ?? { _form: "Save failed." });
+        setErrors((data as { errors?: FieldErrors }).errors ?? { _form: t.saveFailed });
         setStatus("error");
         return;
       }
-      setResult({ path: data.path, model: data.model, backup: data.backup });
+      setResult({
+        path: data.path,
+        model: data.model,
+        backup: data.backup,
+        notice: (data as { notice?: string | null }).notice ?? null,
+      });
       setStatus("success");
+      await refreshProviders();
+      await refreshBackups();
     } catch {
-      setErrors({ _form: "Network error. Is the app server running?" });
+      setErrors({ _form: t.networkError });
       setStatus("error");
     }
   }
@@ -282,18 +374,86 @@ export function useProviderForm() {
       if (!data.ok) throw new Error("read failed");
       setErrors(
         data.exists
-          ? { _form: `Current model: ${data.model ?? "(none)"} @ ${data.path}` }
-          : { _form: `No global config yet. It will be created at ${data.path}` }
+          ? { _form: t.currentModel(data.model ?? t.none, data.path) }
+          : { _form: t.noConfig(data.path) }
       );
       setStatus("error");
     } catch {
-      setErrors({ _form: "Could not load current config." });
+      setErrors({ _form: t.loadFailed });
       setStatus("error");
     }
   }
 
+  async function confirmDelete() {
+    if (!selectedProvider || deleting === "busy") return;
+    setDeleting("busy");
+    try {
+      const res = await fetch("/api/delete-provider", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: selectedProvider.id }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        newModel?: string | null;
+        clearedActiveModel?: boolean;
+        errors?: FieldErrors;
+      };
+      if (!res.ok || !data.ok) {
+        setErrors(data.errors ?? { _form: t.deleteFailed });
+        setStatus("error");
+        setDeleting("idle");
+        return;
+      }
+      await refreshProviders();
+      await refreshBackups();
+      reset();
+      setErrors({
+        _form: data.clearedActiveModel
+          ? t.deletedActive(data.newModel ?? t.none)
+          : t.deleted,
+      });
+      setStatus("error");
+      setDeleting("idle");
+    } catch {
+      setErrors({ _form: t.networkError });
+      setStatus("error");
+      setDeleting("idle");
+    }
+  }
+
+  async function restore(file: string) {
+    setRestoring(file);
+    try {
+      const res = await fetch("/api/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        model?: string | null;
+        errors?: FieldErrors;
+      };
+      if (!res.ok || !data.ok) {
+        setErrors(data.errors ?? { _form: t.restoreFailed });
+        setStatus("error");
+      } else {
+        await refreshProviders();
+        await refreshBackups();
+        reset();
+        setErrors({ _form: t.restored(data.model ?? t.none) });
+        setStatus("error");
+      }
+    } catch {
+      setErrors({ _form: t.networkError });
+      setStatus("error");
+    } finally {
+      setRestoring(null);
+    }
+  }
+
   return {
-    // values
     baseUrl,
     apiKey,
     modelId,
@@ -304,6 +464,13 @@ export function useProviderForm() {
     toolCall,
     reasoning,
     attachment,
+    reasoningField,
+    keyStorage,
+    keyEnvName,
+    keyFile,
+    headerRows,
+    smallModel,
+    storedSmallModel,
     providers,
     selected,
     selectedProvider,
@@ -317,7 +484,11 @@ export function useProviderForm() {
     testMsg,
     discovered,
     deleting,
-    // setters
+    activeModel,
+    showOnboarding,
+    onboardDismissed,
+    backups,
+    restoring,
     setBaseUrl,
     setApiKey,
     setModelId,
@@ -328,16 +499,24 @@ export function useProviderForm() {
     setToolCall,
     setReasoning,
     setAttachment,
+    setReasoningField,
+    setKeyStorage,
+    setKeyEnvName,
+    setKeyFile,
+    setHeaderRows,
+    setSmallModel,
     setShowKey,
-    // actions
+    setDeleting,
+    setOnboardDismissed,
     runValidation,
     handleSelectChange,
     handleModelChange,
+    loadActiveModel,
     submit,
     loadCurrent,
     testConnection,
     confirmDelete,
-    setDeleting,
+    restore,
     reset,
   };
 }

@@ -1,10 +1,13 @@
 import type { ProviderSummary } from "@/lib/provider-schema";
+import type { Strings } from "@/i18n";
 
 export function ProviderSelect({
+  t,
   providers,
   selected,
   onChange,
 }: {
+  t: Strings;
   providers: ProviderSummary[];
   selected: string;
   onChange: (id: string) => void;
@@ -12,7 +15,7 @@ export function ProviderSelect({
   return (
     <div>
       <label htmlFor="existing_provider" className="mb-1 block text-sm font-medium">
-        Provider
+        {t.provider}
       </label>
       <select
         id="existing_provider"
@@ -20,7 +23,7 @@ export function ProviderSelect({
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
       >
-        <option value="__new">+ New provider…</option>
+        <option value="__new">{t.newProvider}</option>
         {providers.map((p) => (
           <option key={p.id} value={p.id}>
             {p.id}

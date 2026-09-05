@@ -8,11 +8,13 @@ export async function GET() {
   const configPath = getGlobalConfigPath();
   try {
     let model: string | null = null;
+    let smallModel: string | null = null;
     let exists = true;
     try {
       const raw = await fs.readFile(configPath, "utf8");
-      const parsed = JSON.parse(raw) as { model?: unknown };
+      const parsed = JSON.parse(raw) as { model?: unknown; small_model?: unknown };
       model = typeof parsed.model === "string" ? parsed.model : null;
+      smallModel = typeof parsed.small_model === "string" ? parsed.small_model : null;
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
         exists = false;
@@ -26,6 +28,7 @@ export async function GET() {
       exists,
       path: configPath,
       model,
+      smallModel,
       providerIds: providers.map((p) => p.id),
       providers,
     });

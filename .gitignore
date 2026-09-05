@@ -2,6 +2,10 @@ node_modules/
 .next/
 out/
 dist/
+.e2e-home/
+test-results/
+playwright-report/
+playwright/.cache/
 tsconfig.tsbuildinfo
 *.bak.*
 *.corrupt-*

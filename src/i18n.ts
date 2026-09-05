@@ -1,0 +1,299 @@
+export type Locale = "en" | "ar";
+
+export type Strings = {
+  dir: "ltr" | "rtl";
+  toggleLang: string;
+  title: string;
+  subtitle: string;
+  footer: string;
+  provider: string;
+  newProvider: string;
+  modelToEdit: string;
+  newModel: string;
+  otherModelsKept: string;
+  providerType: string;
+  typeOpenAI: string;
+  typeOpenAIDesc: string;
+  typeCustom: string;
+  typeCustomDesc: string;
+  providerId: string;
+  baseUrl: string;
+  baseUrlHint: string;
+  apiKey: string;
+  keepKeyHint: string;
+  show: string;
+  hide: string;
+  modelId: string;
+  testConnection: string;
+  testing: string;
+  capabilities: string;
+  capabilitiesNote: string;
+  contextWindow: string;
+  maxOutput: string;
+  toolCalling: string;
+  toolCallingHint: string;
+  reasoning: string;
+  reasoningHint: string;
+  attachments: string;
+  attachmentsHint: string;
+  reasoningField: string;
+  reasoningFieldHint: string;
+  reasoningFieldNone: string;
+  keyStorage: string;
+  keyStorageInline: string;
+  keyStorageInlineDesc: string;
+  keyStorageEnv: string;
+  keyStorageEnvDesc: string;
+  keyStorageFile: string;
+  keyStorageFileDesc: string;
+  keyEnvName: string;
+  keyFile: string;
+  headers: string;
+  headersHint: string;
+  headerName: string;
+  headerValue: string;
+  addHeader: string;
+  smallModel: string;
+  smallModelHint: (stored: string | null) => string;
+  submit: string;
+  saving: string;
+  loadCurrent: string;
+  reset: string;
+  saved: string;
+  savedModel: (model: string) => string;
+  savedFile: (path: string) => string;
+  savedBackup: (backup: string) => string;
+  deleteProvider: (id: string) => string;
+  deleteConfirm: (id: string) => string;
+  deleteYes: string;
+  cancel: string;
+  deleting: string;
+  onboarding: (count: number, model: string | null) => string;
+  loadActive: string;
+  startFresh: string;
+  backups: string;
+  backupsHint: string;
+  noBackups: string;
+  restore: string;
+  restoring: string;
+  corruptBadge: string;
+  apiKeyRequired: string;
+  keyEnvNameRequired: string;
+  keyFileRequired: string;
+  testOk: (count: number) => string;
+  testFailed: string;
+  networkError: string;
+  saveFailed: string;
+  loadFailed: string;
+  deleteFailed: string;
+  restoreFailed: string;
+  deleted: string;
+  deletedActive: (model: string) => string;
+  restored: (model: string) => string;
+  currentModel: (model: string, path: string) => string;
+  noConfig: (path: string) => string;
+  none: string;
+};
+
+const en: Strings = {
+  dir: "ltr",
+  toggleLang: "عربي",
+  title: "Opencode Provider Setup",
+  subtitle:
+    "Enter your endpoint, key, and model. On submit we validate and write the global opencode config automatically.",
+  footer: "Writes global ~/.config/opencode/opencode.json and sets top-level model.",
+  provider: "Provider",
+  newProvider: "+ New provider…",
+  modelToEdit: "Model to edit",
+  newModel: "+ New model…",
+  otherModelsKept: "Other models on this provider are left untouched.",
+  providerType: "Provider type",
+  typeOpenAI: "OpenAI-compatible",
+  typeOpenAIDesc: "Any OpenAI-style /v1 endpoint",
+  typeCustom: "Custom",
+  typeCustomDesc: "Custom provider id + same protocol",
+  providerId: "Provider ID",
+  baseUrl: "Base URL",
+  baseUrlHint: "https required, except localhost / LAN.",
+  apiKey: "API Key",
+  keepKeyHint: "Leave blank to keep the stored key, or type a new one to replace it.",
+  show: "Show",
+  hide: "Hide",
+  modelId: "Model ID",
+  testConnection: "Test connection",
+  testing: "Testing…",
+  capabilities: "Model capabilities",
+  capabilitiesNote: "(optional — shown in opencode as Context / Reasoning / Inputs)",
+  contextWindow: "Context window",
+  maxOutput: "Max output tokens",
+  toolCalling: "Tool calling",
+  toolCallingHint: "Model can use opencode tools (recommended on)",
+  reasoning: "Reasoning",
+  reasoningHint: "Model exposes thinking blocks",
+  attachments: "Attachments (images)",
+  attachmentsHint: "Writes modalities input text+image so opencode shows image Inputs",
+  reasoningField: "Reasoning stream field",
+  reasoningFieldHint: "For models (e.g. GLM) streaming thinking in a custom field. Leave empty if unsure.",
+  reasoningFieldNone: "None",
+  keyStorage: "API key storage",
+  keyStorageInline: "In config file",
+  keyStorageInlineDesc: "Simplest; secret lives in opencode.json",
+  keyStorageEnv: "Environment variable",
+  keyStorageEnvDesc: "Config keeps a {env:NAME} reference only",
+  keyStorageFile: "Separate file",
+  keyStorageFileDesc: "Key file with owner-only permissions",
+  keyEnvName: "Env var name",
+  keyFile: "Key file path",
+  headers: "Custom headers",
+  headersHint: "Optional request headers. Blank value on a stored name keeps the stored secret.",
+  headerName: "Name",
+  headerValue: "Value",
+  addHeader: "+ Add header",
+  smallModel: "Small model (optional)",
+  smallModelHint: (stored) =>
+    stored
+      ? `Currently: ${stored}. Leave blank to keep it.`
+      : "Cheap model for titles etc, as provider/model. Blank = don't set.",
+  submit: "Submit & Apply to Opencode",
+  saving: "Saving…",
+  loadCurrent: "Load current",
+  reset: "Reset",
+  saved: "Saved. Opencode will use it automatically.",
+  savedModel: (model) => `Model: ${model}`,
+  savedFile: (path) => `File: ${path}`,
+  savedBackup: (backup) => `Backup: ${backup}`,
+  deleteProvider: (id) => `Delete provider “${id}”…`,
+  deleteConfirm: (id) => `Delete provider “${id}” and all its models?`,
+  deleteYes: "Yes, delete",
+  cancel: "Cancel",
+  deleting: "Deleting…",
+  onboarding: (count, model) =>
+    `Found ${count} configured provider${count === 1 ? "" : "s"}${model ? `, active model ${model}` : ""}. Load it into the form or start fresh.`,
+  loadActive: "Load active model",
+  startFresh: "Start fresh",
+  backups: "Backups",
+  backupsHint: "Timestamped copies made before every write. Restoring backs up the live file first.",
+  noBackups: "No backups yet — they appear after your first save.",
+  restore: "Restore",
+  restoring: "Restoring…",
+  corruptBadge: "corrupt copy",
+  apiKeyRequired: "api_key is required.",
+  keyEnvNameRequired: "Choose an env var name to store the key in.",
+  keyFileRequired: "Choose a file path to store the key in.",
+  testOk: (count) =>
+    `Reachable. ${count} model${count === 1 ? "" : "s"} discovered — pick one from the Model ID suggestions.`,
+  testFailed: "Connection failed.",
+  networkError: "Network error. Is the app server running?",
+  saveFailed: "Save failed.",
+  loadFailed: "Could not load current config.",
+  deleteFailed: "Delete failed.",
+  restoreFailed: "Restore failed.",
+  deleted: "Provider deleted.",
+  deletedActive: (model) =>
+    `Provider deleted. It was the active model; opencode now uses ${model}.`,
+  restored: (model) => `Restored. Active model is now ${model}.`,
+  currentModel: (model, path) => `Current model: ${model} @ ${path}`,
+  noConfig: (path) => `No global config yet. It will be created at ${path}`,
+  none: "(none)",
+};
+
+const ar: Strings = {
+  dir: "rtl",
+  toggleLang: "EN",
+  title: "إعداد مزوّد Opencode",
+  subtitle: "أدخل العنوان والمفتاح والنموذج. عند الإرسال نتحقق ونكتب إعداد opencode العام تلقائيًا.",
+  footer: "يكتب ‎~/.config/opencode/opencode.json‎ العام ويضبط النموذج.",
+  provider: "المزوّد",
+  newProvider: "+ مزوّد جديد…",
+  modelToEdit: "النموذج المراد تحريره",
+  newModel: "+ نموذج جديد…",
+  otherModelsKept: "بقية النماذج لدى هذا المزوّد تبقى كما هي.",
+  providerType: "نوع المزوّد",
+  typeOpenAI: "متوافق مع OpenAI",
+  typeOpenAIDesc: "أي نقطة نهاية /v1 بأسلوب OpenAI",
+  typeCustom: "مخصص",
+  typeCustomDesc: "معرّف مخصص + نفس البروتوكول",
+  providerId: "معرّف المزوّد",
+  baseUrl: "الرابط الأساسي",
+  baseUrlHint: "يلزم https باستثناء localhost / الشبكة المحلية.",
+  apiKey: "مفتاح API",
+  keepKeyHint: "اتركه فارغًا للاحتفاظ بالمفتاح المحفوظ، أو اكتب مفتاحًا جديدًا لاستبداله.",
+  show: "إظهار",
+  hide: "إخفاء",
+  modelId: "معرّف النموذج",
+  testConnection: "اختبار الاتصال",
+  testing: "جارٍ الاختبار…",
+  capabilities: "قدرات النموذج",
+  capabilitiesNote: "(اختياري — يظهر في opencode كـ Context / Reasoning / Inputs)",
+  contextWindow: "نافذة السياق",
+  maxOutput: "أقصى رموز للإخراج",
+  toolCalling: "استدعاء الأدوات",
+  toolCallingHint: "يمكن للنموذج استخدام أدوات opencode (يُنصح بتفعيله)",
+  reasoning: "الاستدلال",
+  reasoningHint: "النموذج يعرض مقاطع التفكير",
+  attachments: "المرفقات (صور)",
+  attachmentsHint: "يكتب modalities بإدخال نص+صورة ليظهر opencode مدخلات الصور",
+  reasoningField: "حقل بث الاستدلال",
+  reasoningFieldHint: "للنماذج (مثل GLM) التي تبث التفكير في حقل مخصص. اتركه فارغًا إن لم تكن متأكدًا.",
+  reasoningFieldNone: "بلا",
+  keyStorage: "تخزين مفتاح API",
+  keyStorageInline: "في ملف الإعداد",
+  keyStorageInlineDesc: "الأسهل؛ السر يبقى في opencode.json",
+  keyStorageEnv: "متغير بيئة",
+  keyStorageEnvDesc: "يحفظ الإعداد مرجع {env:NAME} فقط",
+  keyStorageFile: "ملف منفصل",
+  keyStorageFileDesc: "ملف مفتاح بصلاحيات المالك فقط",
+  keyEnvName: "اسم متغير البيئة",
+  keyFile: "مسار ملف المفتاح",
+  headers: "ترويسات مخصصة",
+  headersHint: "ترويسات طلب اختيارية. القيمة الفارغة لاسم محفوظ تُبقي السر المحفوظ.",
+  headerName: "الاسم",
+  headerValue: "القيمة",
+  addHeader: "+ إضافة ترويسة",
+  smallModel: "نموذج صغير (اختياري)",
+  smallModelHint: (stored) =>
+    stored
+      ? `الحالي: ${stored}. اتركه فارغًا للاحتفاظ به.`
+      : "نموذج رخيص للعناوين إلخ بصيغة provider/model. فارغ = لا تضبط.",
+  submit: "إرسال وتطبيق على Opencode",
+  saving: "جارٍ الحفظ…",
+  loadCurrent: "عرض الحالي",
+  reset: "تصفير",
+  saved: "تم الحفظ. سيستخدمه opencode تلقائيًا.",
+  savedModel: (model) => `النموذج: ${model}`,
+  savedFile: (path) => `الملف: ${path}`,
+  savedBackup: (backup) => `النسخة الاحتياطية: ${backup}`,
+  deleteProvider: (id) => `حذف المزوّد “${id}”…`,
+  deleteConfirm: (id) => `حذف المزوّد “${id}” وكل نماذجه؟`,
+  deleteYes: "نعم، احذف",
+  cancel: "إلغاء",
+  deleting: "جارٍ الحذف…",
+  onboarding: (count, model) =>
+    `وجدنا ${count} من المزوّدين${model ? `، والنموذج النشط ${model}` : ""}. حمّله في النموذج أو ابدأ من جديد.`,
+  loadActive: "تحميل النموذج النشط",
+  startFresh: "بدء جديد",
+  backups: "النسخ الاحتياطية",
+  backupsHint: "نسخ مؤرخة قبل كل كتابة. الاستعادة تنسخ الملف الحي أولًا.",
+  noBackups: "لا نسخ بعد — تظهر بعد أول حفظ.",
+  restore: "استعادة",
+  restoring: "جارٍ الاستعادة…",
+  corruptBadge: "نسخة تالفة",
+  apiKeyRequired: "مفتاح API مطلوب.",
+  keyEnvNameRequired: "اختر اسم متغير بيئة لتخزين المفتاح.",
+  keyFileRequired: "اختر مسار ملف لتخزين المفتاح.",
+  testOk: (count) => `يمكن الوصول إليه. اكتُشف ${count} من النماذج — اختر من اقتراحات معرّف النموذج.`,
+  testFailed: "فشل الاتصال.",
+  networkError: "خطأ في الشبكة. هل خادم التطبيق يعمل؟",
+  saveFailed: "فشل الحفظ.",
+  loadFailed: "تعذّر تحميل الإعداد الحالي.",
+  deleteFailed: "فشل الحذف.",
+  restoreFailed: "فشلت الاستعادة.",
+  deleted: "تم حذف المزوّد.",
+  deletedActive: (model) => `تم حذف المزوّد. كان النموذج النشط؛ يستخدم opencode الآن ${model}.`,
+  restored: (model) => `تمت الاستعادة. النموذج النشط الآن ${model}.`,
+  currentModel: (model, path) => `النموذج الحالي: ${model} @ ${path}`,
+  noConfig: (path) => `لا يوجد إعداد عام بعد. سيُنشأ في ${path}`,
+  none: "(لا يوجد)",
+};
+
+export const strings: Record<Locale, Strings> = { en, ar };

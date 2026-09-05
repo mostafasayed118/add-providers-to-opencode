@@ -91,6 +91,39 @@ export const providerSchema = z.object({
   output_limit: optionalPositiveInt("output limit"),
   // Original model id when renaming during edit; the old entry is removed.
   editModelId: z.string().trim().max(128).optional(),
+  // Streamed-thinking field for providers like GLM that send reasoning in a
+  // custom message field. Matches opencode's `interleaved` model option
+  // ("reasoning" | "reasoning_content" | "reasoning_text"); omit for none.
+  reasoning_field: z.enum(["reasoning", "reasoning_content", "reasoning_text"]).optional(),
+  // How the secret reaches opencode: inline in the config, or as a
+  // reference that keeps it out of the file. Blank key on edit keeps stored.
+  keyStorage: z.enum(["inline", "env", "file"]).default("inline"),
+  keyEnvName: z
+    .string()
+    .trim()
+    .max(64)
+    .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "env name: CAPITAL_LETTERS_AND_UNDERSCORES")
+    .optional(),
+  keyFile: z.string().trim().max(512).optional(),
+  headers: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(128),
+        value: z.string().max(4096),
+      })
+    )
+    .max(20)
+    .default([]),
+  // Optional cheap model for titles etc. Blank = leave existing untouched.
+  small_model: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? undefined : v),
+    z
+      .string()
+      .trim()
+      .max(256)
+      .refine((v) => v.includes("/"), "small_model must look like provider/model")
+      .optional()
+  ),
   tool_call: z.coerce.boolean().default(true),
   reasoning: z.coerce.boolean().default(false),
   attachment: z.coerce.boolean().default(false),
@@ -103,12 +136,17 @@ export type ProviderSummary = {
   name: string | null;
   baseURL: string | null;
   hasKey: boolean;
+  /** Non-secret description of how the key is stored, if it is a reference. */
+  keyRef: { kind: "env" | "file"; name: string } | null;
+  /** Names of custom request headers (values never leave the server). */
+  headerNames: string[];
   models: Array<{
     id: string;
     name: string | null;
     tool_call: boolean;
     reasoning: boolean;
     attachment: boolean;
+    interleaved: string | null;
     limit: { context?: number; output?: number } | null;
   }>;
 };
@@ -121,6 +159,7 @@ export type FieldErrors = Partial<
     | "providerId"
     | "context_limit"
     | "output_limit"
+    | "small_model"
     | "_form",
     string
   >
