@@ -82,6 +82,9 @@ export type Strings = {
   backupsPrev: string;
   backupsNext: string;
   backupsPage: (page: number, total: number) => string;
+  pagerPrev: string;
+  pagerNext: string;
+  pagerPage: (page: number, total: number) => string;
   searchProviders: string;
   presets: string;
   previewTitle: string;
@@ -217,6 +220,9 @@ const en: Strings = {
   backupsPrev: "Previous",
   backupsNext: "Next",
   backupsPage: (page, total) => `Page ${page} of ${total}`,
+  pagerPrev: "Previous",
+  pagerNext: "Next",
+  pagerPage: (page, total) => `Page ${page} of ${total}`,
   searchProviders: "Search providers…",
   presets: "Start from a preset",
   previewTitle: "Review changes",
@@ -354,6 +360,9 @@ const ar: Strings = {
   backupsPrev: "السابق",
   backupsNext: "التالي",
   backupsPage: (page, total) => `صفحة ${page} من ${total}`,
+  pagerPrev: "السابق",
+  pagerNext: "التالي",
+  pagerPage: (page, total) => `صفحة ${page} من ${total}`,
   searchProviders: "ابحث في المزوّدين…",
   presets: "ابدأ من قالب جاهز",
   previewTitle: "مراجعة التغييرات",

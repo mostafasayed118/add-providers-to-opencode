@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CapabilityFieldset } from "@/components/CapabilityFieldset";
 import { Field, SectionLabel, inputClass, secondaryBtn, selectClass } from "@/components/form-fields";
+import { Pager, PAGE_SIZE } from "@/components/Pager";
 import { ProviderSelect } from "@/components/ProviderSelect";
 import { useProviderForm, type ProviderType } from "@/hooks/useProviderForm";
 import { PRESETS } from "@/lib/presets";
@@ -29,6 +30,8 @@ export default function Home() {
   const [locale, setLocale] = useState<Locale>("en");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [backupPage, setBackupPage] = useState(0);
+  const [doctorPage, setDoctorPage] = useState(0);
+  const [historyPage, setHistoryPage] = useState(0);
   const [providerQuery, setProviderQuery] = useState("");
   const t = strings[locale];
   const form = useProviderForm(t);
@@ -40,17 +43,37 @@ export default function Home() {
       p.models.some((m) => m.id.toLowerCase().includes(providerQuery.trim().toLowerCase()))
   );
 
-  const BACKUP_PAGE_SIZE = 5;
+  const BACKUP_PAGE_SIZE = PAGE_SIZE;
   const backupTotalPages = Math.max(1, Math.ceil(form.backups.length / BACKUP_PAGE_SIZE));
   const safeBackupPage = Math.min(backupPage, backupTotalPages - 1);
   const visibleBackups = form.backups.slice(
     safeBackupPage * BACKUP_PAGE_SIZE,
     safeBackupPage * BACKUP_PAGE_SIZE + BACKUP_PAGE_SIZE
   );
+  const doctorTotalPages = Math.max(1, Math.ceil(form.issues.length / PAGE_SIZE));
+  const safeDoctorPage = Math.min(doctorPage, doctorTotalPages - 1);
+  const visibleIssues = form.issues.slice(
+    safeDoctorPage * PAGE_SIZE,
+    safeDoctorPage * PAGE_SIZE + PAGE_SIZE
+  );
+  const historyTotalPages = Math.max(1, Math.ceil(form.history.length / PAGE_SIZE));
+  const safeHistoryPage = Math.min(historyPage, historyTotalPages - 1);
+  const visibleHistory = form.history.slice(
+    safeHistoryPage * PAGE_SIZE,
+    safeHistoryPage * PAGE_SIZE + PAGE_SIZE
+  );
 
   useEffect(() => {
     setBackupPage(0);
   }, [form.backups.length]);
+
+  useEffect(() => {
+    setDoctorPage(0);
+  }, [form.issues.length]);
+
+  useEffect(() => {
+    setHistoryPage(0);
+  }, [form.history.length]);
 
   useEffect(() => {
     const stored = localStorage.getItem("theme");
@@ -728,42 +751,21 @@ export default function Home() {
                   onClick={() => form.restore(b.file)}
                   className="shrink-0 rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-60 dark:border-slate-700 dark:hover:bg-slate-800"
                 >
-                  {form.restoring === b.file ? t.restoring : t.restore}
+            {form.restoring === b.file ? t.restoring : t.restore}
                 </button>
               </li>
-              ))}
-            </ul>
-            {backupTotalPages > 1 && (
-              <nav
-                aria-label={t.backups}
-                className="mt-3 flex items-center justify-between gap-2"
-              >
-                <button
-                  type="button"
-                  disabled={safeBackupPage === 0}
-                  onClick={() => setBackupPage((p) => Math.max(0, p - 1))}
-                  className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"
-                >
-                  {t.backupsPrev}
-                </button>
-                <span
-                  role="status"
-                  className="text-sm tabular-nums text-slate-500 dark:text-slate-400"
-                >
-                  {t.backupsPage(safeBackupPage + 1, backupTotalPages)}
-                </span>
-                <button
-                  type="button"
-                  disabled={safeBackupPage >= backupTotalPages - 1}
-                  onClick={() =>
-                    setBackupPage((p) => Math.min(backupTotalPages - 1, p + 1))
-                  }
-                  className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"
-                >
-                  {t.backupsNext}
-                </button>
-              </nav>
-            )}
+            ))}
+          </ul>
+          <Pager
+            label={t.backups}
+            page={safeBackupPage}
+            totalPages={backupTotalPages}
+            prevLabel={t.backupsPrev}
+            nextLabel={t.backupsNext}
+            pageLabel={t.backupsPage}
+            onPrev={() => setBackupPage((p) => Math.max(0, p - 1))}
+            onNext={() => setBackupPage((p) => Math.min(backupTotalPages - 1, p + 1))}
+          />
           </>
         )}
       </div>
@@ -787,8 +789,9 @@ export default function Home() {
         {form.issues.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t.noIssues}</p>
         ) : (
-          <ul className="mt-3 space-y-2">
-            {form.issues.map((issue) => (
+          <>
+            <ul className="mt-3 space-y-2">
+              {visibleIssues.map((issue) => (
               <li
                 key={issue.id}
                 className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
@@ -811,6 +814,17 @@ export default function Home() {
               </li>
             ))}
           </ul>
+          <Pager
+            label={t.doctor}
+            page={safeDoctorPage}
+            totalPages={doctorTotalPages}
+            prevLabel={t.pagerPrev}
+            nextLabel={t.pagerNext}
+            pageLabel={t.pagerPage}
+            onPrev={() => setDoctorPage((p) => Math.max(0, p - 1))}
+            onNext={() => setDoctorPage((p) => Math.min(doctorTotalPages - 1, p + 1))}
+          />
+          </>
         )}
       </div>
 
@@ -823,10 +837,11 @@ export default function Home() {
         {form.history.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t.noHistory}</p>
         ) : (
-          <ul className="mt-3 space-y-2">
-            {form.history.slice(0, 20).map((h, i) => (
+          <>
+            <ul className="mt-3 space-y-2">
+              {visibleHistory.map((h, i) => (
               <li
-                key={`${h.ts}-${i}`}
+                key={`${h.ts}-${safeHistoryPage * PAGE_SIZE + i}`}
                 className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
               >
                 <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 font-mono text-xs dark:bg-slate-800">
@@ -841,6 +856,17 @@ export default function Home() {
               </li>
             ))}
           </ul>
+          <Pager
+            label={t.history}
+            page={safeHistoryPage}
+            totalPages={historyTotalPages}
+            prevLabel={t.pagerPrev}
+            nextLabel={t.pagerNext}
+            pageLabel={t.pagerPage}
+            onPrev={() => setHistoryPage((p) => Math.max(0, p - 1))}
+            onNext={() => setHistoryPage((p) => Math.min(historyTotalPages - 1, p + 1))}
+          />
+          </>
         )}
       </div>
 

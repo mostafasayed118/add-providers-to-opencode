@@ -69,12 +69,23 @@ test("backups list paginates", async ({ page }) => {  await page.goto("/");
     await page.getByRole("button", { name: "Confirm & Apply" }).click();
     await expect(page.getByText("Saved. Opencode will use it automatically.")).toBeVisible();
   }
-  await expect(page.getByText(/Page 1 of \d+/)).toBeVisible();
+  const backupsCard = page.locator("div.rounded-2xl", {
+    has: page.locator("h2", { hasText: "Backups" }),
+  });
+  await expect(backupsCard.getByText(/Page 1 of \d+/)).toBeVisible();
   const pager = page.getByRole("navigation", { name: "Backups" });
   await pager.getByRole("button", { name: "Next", exact: true }).click();
-  await expect(page.getByText(/Page 2 of \d+/)).toBeVisible();
+  await expect(
+    page
+      .locator("div.rounded-2xl", { has: page.locator("h2", { hasText: "Backups" }) })
+      .getByText(/Page 2 of \d+/)
+  ).toBeVisible();
   await pager.getByRole("button", { name: "Previous", exact: true }).click();
-  await expect(page.getByText(/Page 1 of \d+/)).toBeVisible();
+  await expect(
+    page
+      .locator("div.rounded-2xl", { has: page.locator("h2", { hasText: "Backups" }) })
+      .getByText(/Page 1 of \d+/)
+  ).toBeVisible();
   await page.locator("div.rounded-2xl", { has: page.locator("h2", { hasText: "Backups" }) }).screenshot({ path: "shots/backups-pager.png" });
 });
 
@@ -105,13 +116,42 @@ test("provider search filters the dropdown", async ({ page }) => {
   await expect(page.locator("#existing_provider option")).toHaveCount(1);
 });
 
-test("doctor runs and history lists saves", async ({ page }) => {
-  await page.goto("/");
+test("doctor runs and history lists saves", async ({ page }) => {  await page.goto("/");
   await page.getByRole("button", { name: "Run checks" }).click();
   // Either a clean bill or reported issues — both prove the check ran.
   await expect(
-    page.getByText(/No issues found\.|has no context limit|has no API key|does not match/)
+    page.getByText(/No issues found\.|has no context limit|has no API key|does not match/).first()
   ).toBeVisible({ timeout: 15000 });
   await expect(page.locator("h2", { hasText: "Change history" })).toBeVisible();
   await expect(page.getByText("save", { exact: true }).first()).toBeVisible();
+});
+
+test("doctor and history paginate", async ({ page, request }) => {
+  // Seed seven models without limits: 7 history entries + 7 limit warnings.
+  for (let i = 0; i < 7; i++) {
+    const res = await request.post("/api/save-provider", {
+      data: {
+        base_url: "https://api.example.com/v1",
+        api_key: "sk-e2e-test-key-123",
+        model_id: `pageseed-${i}`,
+        providerType: "custom",
+        providerId: "pageseed",
+      },
+    });
+    expect(res.ok()).toBe(true);
+  }
+  await page.goto("/");
+  const doctorCard = page.locator("div.rounded-2xl", {
+    has: page.locator("h2", { hasText: "Config health" }),
+  });
+  await expect(doctorCard.getByText(/Page 1 of \d+/)).toBeVisible();
+  await doctorCard.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(doctorCard.getByText(/Page 2 of \d+/)).toBeVisible();
+
+  const historyCard = page.locator("div.rounded-2xl", {
+    has: page.locator("h2", { hasText: "Change history" }),
+  });
+  await expect(historyCard.getByText(/Page 1 of \d+/)).toBeVisible();
+  await historyCard.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(historyCard.getByText(/Page 2 of \d+/)).toBeVisible();
 });
