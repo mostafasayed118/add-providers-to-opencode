@@ -25,23 +25,34 @@ export function useProviderForm() {
   const [attachment, setAttachment] = useState(false);
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [selected, setSelected] = useState<string>("__new");
+  const [modelSel, setModelSel] = useState<string>("__new_model");
+  const [loadedModelId, setLoadedModelId] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [status, setStatus] = useState<FormStatus>("idle");
   const [result, setResult] = useState<SaveSuccess | null>(null);
   const [touched, setTouched] = useState(false);
+  const [testing, setTesting] = useState<"idle" | "testing" | "ok" | "error">("idle");
+  const [testMsg, setTestMsg] = useState<string | null>(null);
+  const [discovered, setDiscovered] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState<"idle" | "confirm" | "busy">("idle");
 
   const selectedProvider = providers.find((p) => p.id === selected) ?? null;
   // Blank key is only acceptable when editing a provider that already has one.
   const requireKey = !selectedProvider?.hasKey;
 
+  async function refreshProviders() {
+    try {
+      const res = await fetch("/api/current-config");
+      const d = (await res.json()) as { ok: boolean; providers?: ProviderSummary[] };
+      if (d.ok && Array.isArray(d.providers)) setProviders(d.providers);
+    } catch {
+      // Dropdown stays empty; form still works for new providers.
+    }
+  }
+
   useEffect(() => {
-    fetch("/api/current-config")
-      .then((r) => r.json())
-      .then((d: { ok: boolean; providers?: ProviderSummary[] }) => {
-        if (d.ok && Array.isArray(d.providers)) setProviders(d.providers);
-      })
-      .catch(() => {});
+    void refreshProviders();
   }, []);
 
   const runValidation = useCallback((): FieldErrors => {
@@ -79,13 +90,10 @@ export function useProviderForm() {
     requireKey,
   ]);
 
-  function loadProvider(p: ProviderSummary) {
-    setSelected(p.id);
-    setProviderType(p.id === "custom" ? "openai-compatible" : "custom");
-    setProviderId(p.id);
-    setBaseUrl(p.baseURL ?? "");
-    setApiKey("");
-    const m = p.models[0];
+  function loadModel(p: ProviderSummary, modelId: string | null) {
+    setModelSel(modelId ?? "__new_model");
+    setLoadedModelId(modelId);
+    const m = p.models.find((x) => x.id === modelId) ?? null;
     setModelId(m?.id ?? "");
     setToolCall(m?.tool_call ?? true);
     setReasoning(m?.reasoning ?? false);
@@ -98,8 +106,21 @@ export function useProviderForm() {
     setTouched(false);
   }
 
+  function loadProvider(p: ProviderSummary) {
+    setSelected(p.id);
+    setProviderType(p.id === "custom" ? "openai-compatible" : "custom");
+    setProviderId(p.id);
+    setBaseUrl(p.baseURL ?? "");
+    setApiKey("");
+    setTestMsg(null);
+    setTesting("idle");
+    loadModel(p, p.models[0]?.id ?? null);
+  }
+
   function reset() {
     setSelected("__new");
+    setModelSel("__new_model");
+    setLoadedModelId(null);
     setBaseUrl("");
     setApiKey("");
     setModelId("");
@@ -110,6 +131,10 @@ export function useProviderForm() {
     setToolCall(true);
     setReasoning(false);
     setAttachment(false);
+    setTesting("idle");
+    setTestMsg(null);
+    setDiscovered([]);
+    setDeleting("idle");
     setErrors({});
     setResult(null);
     setStatus("idle");
@@ -123,6 +148,79 @@ export function useProviderForm() {
     }
     const p = providers.find((x) => x.id === id);
     if (p) loadProvider(p);
+  }
+
+  function handleModelChange(id: string) {
+    if (!selectedProvider) return;
+    loadModel(selectedProvider, id === "__new_model" ? null : id);
+  }
+
+  async function testConnection() {
+    setTesting("testing");
+    setTestMsg(null);
+    try {
+      const res = await fetch("/api/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ base_url: baseUrl, api_key: apiKey.trim() }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        models?: string[];
+        count?: number;
+        error?: string;
+      };
+      if (data.ok) {
+        setTesting("ok");
+        setDiscovered(data.models ?? []);
+        setTestMsg(
+          `Reachable. ${data.count ?? 0} model${data.count === 1 ? "" : "s"} discovered — pick one from the Model ID suggestions.`
+        );
+      } else {
+        setTesting("error");
+        setTestMsg(data.error ?? "Connection failed.");
+      }
+    } catch {
+      setTesting("error");
+      setTestMsg("Network error. Is the app server running?");
+    }
+  }
+
+  async function confirmDelete() {
+    if (!selectedProvider || deleting === "busy") return;
+    setDeleting("busy");
+    try {
+      const res = await fetch("/api/delete-provider", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: selectedProvider.id }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        newModel?: string | null;
+        clearedActiveModel?: boolean;
+        errors?: FieldErrors;
+      };
+      if (!res.ok || !data.ok) {
+        setErrors(data.errors ?? { _form: "Delete failed." });
+        setStatus("error");
+        setDeleting("idle");
+        return;
+      }
+      await refreshProviders();
+      reset();
+      setErrors({
+        _form: data.clearedActiveModel
+          ? `Provider deleted. It was the active model; opencode now uses ${data.newModel ?? "(none)"}.`
+          : "Provider deleted.",
+      });
+      setStatus("error");
+      setDeleting("idle");
+    } catch {
+      setErrors({ _form: "Network error. Is the app server running?" });
+      setStatus("error");
+      setDeleting("idle");
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -145,6 +243,9 @@ export function useProviderForm() {
           model_id: modelId,
           providerType,
           providerId: providerId.trim().toLowerCase() || "custom",
+          ...(loadedModelId && loadedModelId !== modelId.trim()
+            ? { editModelId: loadedModelId }
+            : {}),
           ...(contextLimit.trim() ? { context_limit: Number(contextLimit.trim()) } : {}),
           ...(outputLimit.trim() ? { output_limit: Number(outputLimit.trim()) } : {}),
           tool_call: toolCall,
@@ -206,11 +307,16 @@ export function useProviderForm() {
     providers,
     selected,
     selectedProvider,
+    modelSel,
     showKey,
     errors,
     status,
     result,
     touched,
+    testing,
+    testMsg,
+    discovered,
+    deleting,
     // setters
     setBaseUrl,
     setApiKey,
@@ -226,8 +332,12 @@ export function useProviderForm() {
     // actions
     runValidation,
     handleSelectChange,
+    handleModelChange,
     submit,
     loadCurrent,
+    testConnection,
+    confirmDelete,
+    setDeleting,
     reset,
   };
 }

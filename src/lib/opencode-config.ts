@@ -14,6 +14,54 @@ export function getGlobalConfigPath(): string {
   return path.join(os.homedir(), ".config", "opencode", "opencode.json");
 }
 
+const LOCK_WAIT_MS = 10_000;
+const LOCK_STALE_MS = 15_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Serialize read-modify-write cycles on the global config. mkdir is atomic,
+ * so the lock directory itself is the mutex; stale locks (crashed writers)
+ * are reclaimed by age.
+ */
+export async function withConfigLock<T>(
+  configPath: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const lockDir = `${configPath}.lock`;
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      await fs.mkdir(lockDir);
+      break;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code !== "EEXIST") throw err;
+      try {
+        const stat = await fs.stat(lockDir);
+        if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+          await fs.rm(lockDir, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() > deadline) {
+        throw new Error(
+          "The opencode config is locked by another operation. Try again in a few seconds."
+        );
+      }
+      await sleep(100);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    await fs.rm(lockDir, { recursive: true, force: true });
+  }
+}
+
 export async function listProviders(configPath: string): Promise<ProviderSummary[]> {
   const existing = await readExistingConfig(configPath);
   const providers = (existing.provider as Record<string, unknown> | undefined) ?? {};
@@ -146,35 +194,123 @@ export async function saveProviderConfig(input: ProviderInput): Promise<{
   }
   const configPath = getGlobalConfigPath();
   await fs.mkdir(path.dirname(configPath), { recursive: true });
-  const existing = await readExistingConfig(configPath);
+  return withConfigLock(configPath, async () => {
+    const existing = await readExistingConfig(configPath);
 
-  let backup: string | null = null;
-  try {
-    await fs.access(configPath);
-    backup = `${configPath}.bak.${Date.now()}`;
-    await fs.copyFile(configPath, backup);
-  } catch {
-    backup = null;
-  }
+    let backup: string | null = null;
+    try {
+      await fs.access(configPath);
+      backup = `${configPath}.bak.${Date.now()}`;
+      await fs.copyFile(configPath, backup);
+    } catch {
+      backup = null;
+    }
 
-  const { providerId, entry, model } = buildProviderBlock({ ...parsed, api_key: apiKey });
-  const existingProvider =
-    (existing.provider as Record<string, unknown> | undefined) ?? {};
-  const next = {
-    ...existing,
-    provider: { ...existingProvider, [providerId]: entry },
-    model,
-  };
+    const { providerId, entry, model } = buildProviderBlock({
+      ...parsed,
+      api_key: apiKey,
+    });
+    const existingProviders =
+      (existing.provider as Record<string, unknown> | undefined) ?? {};
+    // Merge into the existing provider entry instead of replacing it, so
+    // sibling models and extra options (e.g. headers) survive an edit.
+    const prevEntry = (existingProviders[providerId] ?? {}) as Record<string, unknown>;
+    const prevOptions = (prevEntry.options ?? {}) as Record<string, unknown>;
+    const prevModels = { ...((prevEntry.models ?? {}) as Record<string, unknown>) };
+    if (parsed.editModelId && parsed.editModelId !== parsed.model_id) {
+      delete prevModels[parsed.editModelId];
+    }
+    const prevModel = (prevModels[parsed.model_id] ?? {}) as Record<string, unknown>;
+    const newModels = (entry.models ?? {}) as Record<string, unknown>;
+    const newModel = newModels[parsed.model_id] as Record<string, unknown>;
+    prevModels[parsed.model_id] = {
+      ...prevModel,
+      ...newModel,
+      name: typeof prevModel.name === "string" ? prevModel.name : parsed.model_id,
+    };
+    const nextEntry: Record<string, unknown> = {
+      ...prevEntry,
+      ...entry,
+      options: { ...prevOptions, ...(entry.options as Record<string, unknown>) },
+      models: prevModels,
+    };
+    // First save ever decides the npm package; keep a stored one if present.
+    if (typeof prevEntry.npm === "string") nextEntry.npm = prevEntry.npm;
+    const next = {
+      ...existing,
+      provider: { ...existingProviders, [providerId]: nextEntry },
+      model,
+    };
 
-  const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
-  await fs.writeFile(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
-  await fs.rename(tmp, configPath);
+    const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+    await fs.rename(tmp, configPath);
 
-  // Read-back verification (never log secrets)
-  const verifyRaw = await fs.readFile(configPath, "utf8");
-  const verify = JSON.parse(verifyRaw) as Record<string, unknown>;
-  if ((verify as { model?: unknown }).model !== model) {
-    throw new Error("Write verification failed: model mismatch after save.");
-  }
-  return { path: configPath, model, backup };
+    // Read-back verification (never log secrets)
+    const verifyRaw = await fs.readFile(configPath, "utf8");
+    const verify = JSON.parse(verifyRaw) as Record<string, unknown>;
+    if ((verify as { model?: unknown }).model !== model) {
+      throw new Error("Write verification failed: model mismatch after save.");
+    }
+    return { path: configPath, model, backup };
+  });
+}
+
+export async function deleteProvider(
+  configPath: string,
+  providerId: string
+): Promise<{ backup: string | null; clearedActiveModel: boolean; newModel: string | null }> {
+  // Provider ids are normalized to lowercase slugs on save (zod transform),
+  // so normalize here too — otherwise "MyProv" would never match "myprov".
+  const id = providerId.trim().toLowerCase();
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  return withConfigLock(configPath, async () => {
+    const existing = await readExistingConfig(configPath);
+    const providers = { ...((existing.provider as Record<string, unknown> | undefined) ?? {}) };
+    if (!(id in providers)) {
+      throw new Error(`Provider "${id}" does not exist.`);
+    }
+    let backup: string | null = null;
+    try {
+      await fs.access(configPath);
+      backup = `${configPath}.bak.${Date.now()}`;
+      await fs.copyFile(configPath, backup);
+    } catch {
+      backup = null;
+    }
+    delete providers[id];
+
+    let clearedActiveModel = false;
+    let newModel = (existing as { model?: unknown }).model ?? null;
+    // Compare case-insensitively: hand-edited configs may carry any case,
+    // while saves always write the lowercased provider id.
+    if (
+      typeof newModel === "string" &&
+      newModel.toLowerCase().startsWith(`${id}/`)
+    ) {
+      clearedActiveModel = true;
+      newModel = null;
+      for (const [pid, p] of Object.entries(providers)) {
+        const models = ((p as Record<string, unknown>).models ?? {}) as Record<string, unknown>;
+        const first = Object.keys(models)[0];
+        if (first) {
+          newModel = `${pid}/${first}`;
+          break;
+        }
+      }
+    }
+
+    const next: Record<string, unknown> = { ...existing, provider: providers };
+    if (newModel) next.model = newModel;
+    else delete next.model;
+
+    const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+    await fs.rename(tmp, configPath);
+    return {
+      backup,
+      clearedActiveModel,
+      newModel: typeof newModel === "string" ? newModel : null,
+    };
+  });
 }

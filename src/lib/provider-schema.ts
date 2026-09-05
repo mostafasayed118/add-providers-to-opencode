@@ -89,6 +89,8 @@ export const providerSchema = z.object({
     .default("custom"),
   context_limit: optionalPositiveInt("context limit"),
   output_limit: optionalPositiveInt("output limit"),
+  // Original model id when renaming during edit; the old entry is removed.
+  editModelId: z.string().trim().max(128).optional(),
   tool_call: z.coerce.boolean().default(true),
   reasoning: z.coerce.boolean().default(false),
   attachment: z.coerce.boolean().default(false),

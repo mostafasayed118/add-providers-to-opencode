@@ -31,8 +31,31 @@ export default function Home() {
             providers={form.providers}
             selected={form.selected}
             onChange={form.handleSelectChange}
-            multiModelNote={(form.selectedProvider?.models.length ?? 0) > 1}
           />
+
+          {form.selectedProvider && form.selectedProvider.models.length > 0 && (
+            <div>
+              <label htmlFor="model_sel" className="mb-1 block text-sm font-medium">
+                Model to edit
+              </label>
+              <select
+                id="model_sel"
+                value={form.modelSel}
+                onChange={(e) => form.handleModelChange(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              >
+                {form.selectedProvider.models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id}
+                  </option>
+                ))}
+                <option value="__new_model">+ New model…</option>
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                Other models on this provider are left untouched.
+              </p>
+            </div>
+          )}
 
           <fieldset>
             <legend className="mb-2 text-sm font-medium">Provider type</legend>
@@ -136,6 +159,7 @@ export default function Home() {
           <Field label="Model ID" htmlFor="model_id" error={form.errors.model_id}>
             <input
               id="model_id"
+              list="model-suggestions"
               placeholder="gpt-4o-mini"
               value={form.modelId}
               onChange={(e) => form.setModelId(e.target.value)}
@@ -145,7 +169,36 @@ export default function Home() {
               aria-describedby={form.errors.model_id ? "model_id-error" : undefined}
               className={inputClass(Boolean(form.errors.model_id))}
             />
+            <datalist id="model-suggestions">
+              {form.discovered.map((id) => (
+                <option key={`d-${id}`} value={id} />
+              ))}
+              {(form.selectedProvider?.models ?? []).map((m) => (
+                <option key={`m-${m.id}`} value={m.id} />
+              ))}
+            </datalist>
           </Field>
+
+          <div>
+            <button
+              type="button"
+              onClick={form.testConnection}
+              disabled={form.testing === "testing"}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {form.testing === "testing" ? "Testing…" : "Test connection"}
+            </button>
+            {form.testMsg && (
+              <p
+                role={form.testing === "ok" ? "status" : "alert"}
+                className={`mt-1 text-sm ${
+                  form.testing === "ok" ? "text-green-700" : "text-red-600"
+                }`}
+              >
+                {form.testMsg}
+              </p>
+            )}
+          </div>
 
           <CapabilityFieldset
             values={{
@@ -211,6 +264,43 @@ export default function Home() {
               Reset
             </button>
           </div>
+
+          {form.selectedProvider && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+              {form.deleting === "confirm" ? (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <p className="flex-1 text-sm text-red-900">
+                    Delete provider “{form.selectedProvider.id}” and all its models?
+                  </p>
+                  <button
+                    type="button"
+                    onClick={form.confirmDelete}
+                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                  >
+                    Yes, delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => form.setDeleting("idle")}
+                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => form.setDeleting("confirm")}
+                  disabled={form.deleting === "busy"}
+                  className="text-sm font-medium text-red-700 hover:text-red-900 disabled:opacity-60"
+                >
+                  {form.deleting === "busy"
+                    ? "Deleting…"
+                    : `Delete provider “${form.selectedProvider.id}”…`}
+                </button>
+              )}
+            </div>
+          )}
         </form>
       </div>
       <p className="mt-4 text-center text-xs text-slate-500">

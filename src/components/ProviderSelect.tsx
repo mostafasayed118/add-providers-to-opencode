@@ -4,12 +4,10 @@ export function ProviderSelect({
   providers,
   selected,
   onChange,
-  multiModelNote,
 }: {
   providers: ProviderSummary[];
   selected: string;
   onChange: (id: string) => void;
-  multiModelNote: boolean;
 }) {
   return (
     <div>
@@ -31,11 +29,6 @@ export function ProviderSelect({
           </option>
         ))}
       </select>
-      {multiModelNote && (
-        <p className="mt-1 text-xs text-slate-500">
-          Editing the first model; other models on this provider are left untouched.
-        </p>
-      )}
     </div>
   );
 }

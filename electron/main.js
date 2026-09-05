@@ -37,7 +37,19 @@ async function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  await createWindow();
+  if (!isDev) {
+    // Packaged app: check GitHub Releases for updates (unsigned build still
+    // updates, Windows SmartScreen applies as usual on first install).
+    try {
+      const { autoUpdater } = require("electron-updater");
+      autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+    } catch {
+      // auto-update is best-effort; the app works fine without it.
+    }
+  }
+});
 app.on("window-all-closed", () => {
   if (nextProc) try { nextProc.kill(); } catch {}
   if (process.platform !== "darwin") app.quit();

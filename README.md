@@ -4,11 +4,18 @@ Desktop-ready form to collect `base_url`, `api_key`, `model_id` (+ provider type
 OpenAI-compatible / custom) and apply it to the **global** opencode config so
 running `opencode` reflects it automatically.
 
+Features: input validation, **Test connection** (probes `{baseURL}/models` and
+offers discovered model IDs), edit existing providers (blank key keeps the stored
+key), per-model capabilities (context/output limits, tool calling, reasoning,
+image `modalities`), multi-model providers, provider delete with active-model
+fallback, timestamped backups + corrupt-file recovery, concurrent-save locking,
+auto-update from GitHub Releases (desktop build).
+
 ## Run end-to-end
 
 ```bash
 npm install
-npm test      # 18 unit + integration tests (isolated temp home, real config untouched)
+npm test      # 27 unit + integration tests (isolated temp home, real config untouched)
 npm run dev
 # open http://localhost:3000
 ```
