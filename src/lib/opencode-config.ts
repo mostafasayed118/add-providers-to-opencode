@@ -132,6 +132,34 @@ export async function getStoredApiKey(
 
 export type KeyRef = { kind: "env" | "file"; name: string } | null;
 
+const SECRET_KEYS = new Set(["apiKey", "api_key", "token", "secret"]);
+
+/**
+ * Deep copy with secret values replaced by a placeholder. Used for previews
+ * and logs so stored secrets the user never typed are never rendered.
+ */
+export function redactSecrets<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(redactSecrets) as unknown as T;
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (SECRET_KEYS.has(k)) {
+        out[k] = typeof v === "string" && v.length > 0 ? "•••" : v;
+      } else if (k === "headers" && v !== null && typeof v === "object" && !Array.isArray(v)) {
+        const h: Record<string, unknown> = {};
+        for (const [hk, hv] of Object.entries(v as Record<string, unknown>)) {
+          h[hk] = typeof hv === "string" && hv.length > 0 ? "•••" : hv;
+        }
+        out[k] = h;
+      } else {
+        out[k] = redactSecrets(v);
+      }
+    }
+    return out as T;
+  }
+  return value;
+}
+
 export type BackupInfo = {
   file: string;
   kind: "backup" | "corrupt";
@@ -315,6 +343,56 @@ export function buildProviderBlock(input: ProviderInput & { api_key: string }): 
   return { providerId, entry, model: `${providerId}/${input.model_id}` };
 }
 
+export type MergedConfig = {
+  providers: Record<string, unknown>;
+  providerId: string;
+  entry: Record<string, unknown>;
+  model: string;
+};
+
+/**
+ * Pure merge of one provider entry into an existing config object.
+ * Shared by save (writes it) and preview (only displays the diff).
+ */
+export function mergeProviderEntry(
+  existing: Record<string, unknown>,
+  parsed: ProviderInput & { api_key: string }
+): MergedConfig {
+  const { providerId, entry, model } = buildProviderBlock(parsed);
+  const existingProviders =
+    (existing.provider as Record<string, unknown> | undefined) ?? {};
+  // Merge into the existing provider entry instead of replacing it, so
+  // sibling models and extra options (e.g. headers) survive an edit.
+  const prevEntry = (existingProviders[providerId] ?? {}) as Record<string, unknown>;
+  const prevOptions = (prevEntry.options ?? {}) as Record<string, unknown>;
+  const prevModels = { ...((prevEntry.models ?? {}) as Record<string, unknown>) };
+  if (parsed.editModelId && parsed.editModelId !== parsed.model_id) {
+    delete prevModels[parsed.editModelId];
+  }
+  const prevModel = (prevModels[parsed.model_id] ?? {}) as Record<string, unknown>;
+  const newModels = (entry.models ?? {}) as Record<string, unknown>;
+  const newModel = newModels[parsed.model_id] as Record<string, unknown>;
+  prevModels[parsed.model_id] = {
+    ...prevModel,
+    ...newModel,
+    name: typeof prevModel.name === "string" ? prevModel.name : parsed.model_id,
+  };
+  const nextEntry: Record<string, unknown> = {
+    ...prevEntry,
+    ...entry,
+    options: { ...prevOptions, ...(entry.options as Record<string, unknown>) },
+    models: prevModels,
+  };
+  // First save ever decides the npm package; keep a stored one if present.
+  if (typeof prevEntry.npm === "string") nextEntry.npm = prevEntry.npm;
+  return {
+    providers: { ...existingProviders, [providerId]: nextEntry },
+    providerId,
+    entry: nextEntry,
+    model,
+  };
+}
+
 export async function saveProviderConfig(input: unknown): Promise<{
   path: string;
   model: string;
@@ -341,40 +419,11 @@ export async function saveProviderConfig(input: unknown): Promise<{
       backup = null;
     }
 
-    const { providerId, entry, model } = buildProviderBlock({
-      ...parsed,
-      api_key: apiKey,
-    });
-    const existingProviders =
-      (existing.provider as Record<string, unknown> | undefined) ?? {};
-    // Merge into the existing provider entry instead of replacing it, so
-    // sibling models and extra options (e.g. headers) survive an edit.
-    const prevEntry = (existingProviders[providerId] ?? {}) as Record<string, unknown>;
-    const prevOptions = (prevEntry.options ?? {}) as Record<string, unknown>;
-    const prevModels = { ...((prevEntry.models ?? {}) as Record<string, unknown>) };
-    if (parsed.editModelId && parsed.editModelId !== parsed.model_id) {
-      delete prevModels[parsed.editModelId];
-    }
-    const prevModel = (prevModels[parsed.model_id] ?? {}) as Record<string, unknown>;
-    const newModels = (entry.models ?? {}) as Record<string, unknown>;
-    const newModel = newModels[parsed.model_id] as Record<string, unknown>;
-    prevModels[parsed.model_id] = {
-      ...prevModel,
-      ...newModel,
-      name: typeof prevModel.name === "string" ? prevModel.name : parsed.model_id,
-    };
-    const nextEntry: Record<string, unknown> = {
-      ...prevEntry,
-      ...entry,
-      options: { ...prevOptions, ...(entry.options as Record<string, unknown>) },
-      models: prevModels,
-    };
-    // First save ever decides the npm package; keep a stored one if present.
-    if (typeof prevEntry.npm === "string") nextEntry.npm = prevEntry.npm;
+    const merged = mergeProviderEntry(existing, { ...parsed, api_key: apiKey });
     const next: Record<string, unknown> = {
       ...existing,
-      provider: { ...existingProviders, [providerId]: nextEntry },
-      model,
+      provider: merged.providers,
+      model: merged.model,
     };
     // small_model is opt-in: only overwrite when the form provided one,
     // otherwise a blank field must not wipe the stored value.
@@ -387,10 +436,10 @@ export async function saveProviderConfig(input: unknown): Promise<{
     // Read-back verification (never log secrets)
     const verifyRaw = await fs.readFile(configPath, "utf8");
     const verify = JSON.parse(verifyRaw) as Record<string, unknown>;
-    if ((verify as { model?: unknown }).model !== model) {
+    if ((verify as { model?: unknown }).model !== merged.model) {
       throw new Error("Write verification failed: model mismatch after save.");
     }
-    return { path: configPath, model, backup };
+    return { path: configPath, model: merged.model, backup };
   });
 }
 
@@ -451,4 +500,186 @@ export async function deleteProvider(
       newModel: typeof newModel === "string" ? newModel : null,
     };
   });
+}
+
+function uniqueCopyId(existing: Record<string, unknown>, base: string): string {
+  if (!(base in existing)) return base;
+  let i = 2;
+  while (`${base}-copy${i === 2 ? "" : `-${i}`}` in existing) i++;
+  return `${base}-copy${i === 2 ? "" : `-${i}`}`;
+}
+
+/** Duplicate a provider entry (key included) so settings can be tried safely. */
+export async function cloneProvider(
+  configPath: string,
+  providerId: string
+): Promise<{ newId: string; backup: string | null }> {
+  const id = providerId.trim().toLowerCase();
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  return withConfigLock(configPath, async () => {
+    const existing = await readExistingConfig(configPath);
+    const providers = { ...((existing.provider as Record<string, unknown> | undefined) ?? {}) };
+    const src = providers[id];
+    if (src === undefined) {
+      throw new Error(`Provider "${id}" does not exist.`);
+    }
+    const newId = uniqueCopyId(providers, `${id}-copy`);
+    // Deep copy so later edits of either side never alias.
+    providers[newId] = JSON.parse(JSON.stringify(src)) as unknown;
+    (providers[newId] as Record<string, unknown>).name =
+      typeof (src as Record<string, unknown>).name === "string"
+        ? `${(src as Record<string, unknown>).name} (copy)`
+        : newId;
+    let backup: string | null = null;
+    try {
+      await fs.access(configPath);
+      backup = `${configPath}.bak.${Date.now()}`;
+      await fs.copyFile(configPath, backup);
+    } catch {
+      backup = null;
+    }
+    const next = { ...existing, provider: providers };
+    const tmp = `${configPath}.tmp.${process.pid}.${Date.now()}`;
+    await fs.writeFile(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+    await fs.rename(tmp, configPath);
+    return { newId, backup };
+  });
+}
+
+export type HistoryAction = "save" | "delete" | "restore" | "clone";
+
+function historyPath(configPath: string): string {
+  return path.join(path.dirname(configPath), "provider-tool-history.jsonl");
+}
+
+/** Append-only local audit log (no secrets — ids and model refs only). */
+export async function logHistory(
+  configPath: string,
+  action: HistoryAction,
+  detail: Record<string, string | null>
+): Promise<void> {
+  try {
+    const line = JSON.stringify({ ts: new Date().toISOString(), action, ...detail }) + "\n";
+    await fs.appendFile(historyPath(configPath), line, "utf8");
+  } catch {
+    // History is best-effort; never fail the operation for it.
+  }
+}
+
+export type HistoryEntry = {
+  ts: string;
+  action: HistoryAction;
+  provider?: string | null;
+  model?: string | null;
+};
+
+export async function readHistory(configPath: string, limit = 50): Promise<HistoryEntry[]> {
+  try {
+    const raw = await fs.readFile(historyPath(configPath), "utf8");
+    const lines = raw.split("\n").filter((l) => l.trim() !== "");
+    const out: HistoryEntry[] = [];
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line) as HistoryEntry;
+        if (typeof e.ts === "string" && typeof e.action === "string") out.push(e);
+      } catch {
+        // Skip torn trailing line from a concurrent append.
+      }
+    }
+    return out.slice(-limit).reverse();
+  } catch {
+    return [];
+  }
+}
+
+export type DoctorIssue = {
+  id: string;
+  level: "error" | "warn";
+  provider?: string;
+  message: string;
+  fixable: boolean;
+};
+
+/** Static health checks over the whole file. No network involved. */
+export function checkConfig(existing: Record<string, unknown>): DoctorIssue[] {
+  const issues: DoctorIssue[] = [];
+  const providers = ((existing.provider as Record<string, unknown> | undefined) ?? {}) as Record<
+    string,
+    Record<string, unknown>
+  >;
+  for (const [pid, p] of Object.entries(providers)) {
+    const prov = (p ?? {}) as Record<string, unknown>;
+    const options = (prov.options ?? {}) as Record<string, unknown>;
+    const models = (prov.models ?? {}) as Record<string, unknown>;
+    if (Object.keys(models).length === 0) {
+      issues.push({
+        id: `empty:${pid}`,
+        level: "error",
+        provider: pid,
+        message: `Provider "${pid}" has no models and will never be selectable.`,
+        fixable: true,
+      });
+    }
+    if (typeof options.apiKey !== "string" || options.apiKey.length === 0) {
+      issues.push({
+        id: `nokey:${pid}`,
+        level: "error",
+        provider: pid,
+        message: `Provider "${pid}" has no API key configured.`,
+        fixable: false,
+      });
+    }
+    if (typeof options.baseURL === "string") {
+      let ok = true;
+      try {
+        const u = new URL(options.baseURL);
+        ok = u.protocol === "https:" || u.protocol === "http:";
+      } catch {
+        ok = false;
+      }
+      if (!ok) {
+        issues.push({
+          id: `badurl:${pid}`,
+          level: "error",
+          provider: pid,
+          message: `Provider "${pid}" has an invalid baseURL.`,
+          fixable: false,
+        });
+      }
+    }
+    for (const [mid, m] of Object.entries(models)) {
+      const mm = (m ?? {}) as Record<string, unknown>;
+      const limit = (mm.limit ?? null) as { context?: unknown } | null;
+      if (!limit || typeof limit.context !== "number") {
+        issues.push({
+          id: `nolimit:${pid}/${mid}`,
+          level: "warn",
+          provider: pid,
+          message: `Model "${mid}" has no context limit; opencode shows Context 0.`,
+          fixable: false,
+        });
+      }
+    }
+  }
+  const model = (existing as { model?: unknown }).model;
+  if (typeof model === "string" && model.includes("/")) {
+    const slash = model.indexOf("/");
+    const pid = model.slice(0, slash).toLowerCase();
+    const mid = model.slice(slash + 1);
+    const prov = providers[pid] as Record<string, unknown> | undefined;
+    const models = ((prov?.models ?? {}) as Record<string, unknown>) ?? {};
+    const found =
+      prov !== undefined &&
+      (mid in models ||
+        Object.keys(models).some((k) => k.toLowerCase() === mid.toLowerCase()));
+    if (!found) {
+      issues.push({
+        id: "dangling-model",
+        level: "error",
+        message: `Active model "${model}" does not match any configured provider/model.`,
+        fixable: true,
+      });
+    }
+  }
+  return issues;
 }

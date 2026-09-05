@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getGlobalConfigPath, restoreBackup } from "@/lib/opencode-config";
+import { getGlobalConfigPath, logHistory, restoreBackup } from "@/lib/opencode-config";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,11 @@ export async function POST(req: Request) {
     );
   }
   try {
-    const result = await restoreBackup(getGlobalConfigPath(), file);
+    const configPath = getGlobalConfigPath();
+    const result = await restoreBackup(configPath, file);
+    await logHistory(configPath, "restore", { provider: null, model: result.model }).catch(
+      () => {}
+    );
     return NextResponse.json({ ok: true, ...result });
   } catch (err: unknown) {
     return NextResponse.json(

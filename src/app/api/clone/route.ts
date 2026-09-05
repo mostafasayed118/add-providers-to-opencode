@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
-import { deleteProvider, getGlobalConfigPath, logHistory } from "@/lib/opencode-config";
+import {
+  cloneProvider,
+  getGlobalConfigPath,
+  logHistory,
+} from "@/lib/opencode-config";
 
 export const dynamic = "force-dynamic";
 
-export async function DELETE(req: Request) {
+export async function POST(req: Request) {
   let body: unknown;
   try {
     body = await req.json();
@@ -22,18 +26,18 @@ export async function DELETE(req: Request) {
   }
   try {
     const configPath = getGlobalConfigPath();
-    const result = await deleteProvider(configPath, providerId.trim());
-    await logHistory(configPath, "delete", {
+    const result = await cloneProvider(configPath, providerId);
+    await logHistory(configPath, "clone", {
       provider: providerId.trim().toLowerCase(),
-      model: result.newModel,
-    }).catch(() => {});
+      model: result.newId,
+    });
     return NextResponse.json({ ok: true, ...result });
   } catch (err: unknown) {
     return NextResponse.json(
       {
         ok: false,
         errors: {
-          _form: err instanceof Error ? err.message : "Failed to delete provider.",
+          _form: err instanceof Error ? err.message : "Clone failed.",
         },
       },
       { status: 500 }

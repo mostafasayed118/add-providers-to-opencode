@@ -5,6 +5,7 @@ import { CapabilityFieldset } from "@/components/CapabilityFieldset";
 import { Field, SectionLabel, inputClass, secondaryBtn, selectClass } from "@/components/form-fields";
 import { ProviderSelect } from "@/components/ProviderSelect";
 import { useProviderForm, type ProviderType } from "@/hooks/useProviderForm";
+import { PRESETS } from "@/lib/presets";
 import { strings, type Locale } from "@/i18n";
 
 const PROVIDER_TYPES = [
@@ -28,8 +29,16 @@ export default function Home() {
   const [locale, setLocale] = useState<Locale>("en");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [backupPage, setBackupPage] = useState(0);
+  const [providerQuery, setProviderQuery] = useState("");
   const t = strings[locale];
   const form = useProviderForm(t);
+
+  const filteredProviders = form.providers.filter(
+    (p) =>
+      !providerQuery.trim() ||
+      p.id.toLowerCase().includes(providerQuery.trim().toLowerCase()) ||
+      p.models.some((m) => m.id.toLowerCase().includes(providerQuery.trim().toLowerCase()))
+  );
 
   const BACKUP_PAGE_SIZE = 5;
   const backupTotalPages = Math.max(1, Math.ceil(form.backups.length / BACKUP_PAGE_SIZE));
@@ -132,12 +141,39 @@ export default function Home() {
 
         <form onSubmit={form.submit} noValidate className="space-y-5">
           <SectionLabel n="01">{t.provider}</SectionLabel>
-          <ProviderSelect
-            t={t}
-            providers={form.providers}
-            selected={form.selected}
-            onChange={form.handleSelectChange}
-          />
+          <div>
+            <input
+              aria-label={t.searchProviders}
+              placeholder={t.searchProviders}
+              value={providerQuery}
+              onChange={(e) => setProviderQuery(e.target.value)}
+              autoComplete="off"
+              className={`${inputClass(false)} mb-2`}
+            />
+            <ProviderSelect
+              t={t}
+              providers={filteredProviders}
+              selected={form.selected}
+              onChange={form.handleSelectChange}
+            />
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm font-medium">{t.presets}</p>
+            <div className="flex flex-wrap gap-2">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => form.applyPreset(p)}
+                  title={p.baseURL}
+                  className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {form.selectedProvider && form.selectedProvider.models.length > 0 && (
             <div>
@@ -338,7 +374,7 @@ export default function Home() {
             </datalist>
           </Field>
 
-          <div>
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={form.testConnection}
@@ -347,19 +383,41 @@ export default function Home() {
             >
               {form.testing === "testing" ? t.testing : t.testConnection}
             </button>
-            {form.testMsg && (
-              <p
-                role={form.testing === "ok" ? "status" : "alert"}
-                className={`mt-1 text-sm ${
-                  form.testing === "ok"
-                    ? "text-green-700 dark:text-green-400"
-                    : "text-red-600 dark:text-red-400"
-                }`}
-              >
-                {form.testMsg}
-              </p>
-            )}
+            <button
+              type="button"
+              onClick={form.testPrompt}
+              disabled={form.promptState === "testing"}
+              title={t.promptHint}
+              className={secondaryBtn}
+            >
+              {form.promptState === "testing" ? t.promptTesting : t.testPrompt}
+            </button>
           </div>
+          {form.testMsg && (
+            <p
+              role={form.testing === "ok" ? "status" : "alert"}
+              className={`mt-1 text-sm ${
+                form.testing === "ok"
+                  ? "text-green-700 dark:text-green-400"
+                  : "text-red-600 dark:text-red-400"
+              }`}
+            >
+              {form.testMsg}
+            </p>
+          )}
+          {form.promptMsg && (
+            <p
+              role={form.promptState === "ok" ? "status" : "alert"}
+              className={`mt-1 break-all text-sm ${
+                form.promptState === "ok"
+                  ? "text-green-700 dark:text-green-400"
+                  : "text-red-600 dark:text-red-400"
+              }`}
+            >
+              {form.promptMsg}
+            </p>
+          )}
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t.promptHint}</p>
 
           <CapabilityFieldset
             t={t}
@@ -482,13 +540,83 @@ export default function Home() {
             </div>
           )}
 
+          {form.preview && (
+            <div
+              role="dialog"
+              aria-label={t.previewTitle}
+              className="animate-enter rounded-lg border border-blue-300 bg-blue-50/50 px-3 py-2 dark:border-blue-800 dark:bg-blue-950/40"
+            >
+              <p className="text-sm font-semibold">
+                {t.previewTitle} — <span className="font-mono">{form.preview.model}</span>
+              </p>
+              {form.preview.changed ? (
+                <div className="mt-2 max-h-64 space-y-3 overflow-auto">
+                  {form.preview.sections.map((s) => (
+                    <div key={s.title}>
+                      <p dir="ltr" className="text-left font-mono text-xs font-semibold text-slate-500 dark:text-slate-400">
+                        {s.title}
+                      </p>
+                      <pre
+                        dir="ltr"
+                        className="mt-1 overflow-auto rounded-lg bg-white p-2 text-left font-mono text-xs leading-relaxed ring-1 ring-slate-200 dark:bg-slate-950 dark:ring-slate-800"
+                      >
+                        {s.lines.map((l, i) => (
+                          <div
+                            key={i}
+                            className={
+                              l.type === "add"
+                                ? "bg-green-100 text-green-900 dark:bg-green-950 dark:text-green-200"
+                                : l.type === "del"
+                                  ? "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200"
+                                  : "text-slate-500 dark:text-slate-400"
+                            }
+                          >
+                            <span className="mr-2 inline-block w-3 select-none opacity-60">
+                              {l.type === "add" ? "+" : l.type === "del" ? "−" : " "}
+                            </span>
+                            {l.text}
+                          </div>
+                        ))}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                  {t.previewNoChanges}
+                </p>
+              )}
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={form.confirmSubmit}
+                  disabled={form.status === "saving"}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow shadow-blue-900/20 transition duration-200 hover:bg-blue-700 active:scale-[0.98] disabled:opacity-60"
+                >
+                  {form.status === "saving" ? t.saving : t.confirmApply}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => form.setPreview(null)}
+                  className={secondaryBtn}
+                >
+                  {t.backToEdit}
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                <span className="mr-3"><span className="font-semibold text-green-700 dark:text-green-400">+ {t.previewAdded}</span></span>
+                <span className="font-semibold text-red-700 dark:text-red-400">− {t.previewRemoved}</span>
+              </p>
+            </div>
+          )}
+
           <div className="flex flex-col gap-2 sm:flex-row">
             <button
               type="submit"
-              disabled={form.status === "saving"}
+              disabled={form.status === "saving" || form.previewing}
               className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow shadow-blue-900/20 transition duration-200 hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {form.status === "saving" ? t.saving : t.submit}
+              {form.previewing ? t.previewing : form.status === "saving" ? t.saving : t.submit}
             </button>
             <button
               type="button"
@@ -505,6 +633,19 @@ export default function Home() {
               {t.reset}
             </button>
           </div>
+
+          {form.selectedProvider && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={form.cloneSelected}
+                disabled={form.cloning}
+                className={secondaryBtn}
+              >
+                {form.cloning ? t.cloning : t.clone}
+              </button>
+            </div>
+          )}
 
           {form.selectedProvider && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 dark:border-red-900 dark:bg-red-950">
@@ -546,10 +687,23 @@ export default function Home() {
       </div>
 
       <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
-        <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
-          <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">04</span>
-          {t.backups}
-        </h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
+            <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">04</span>
+            {t.backups}
+          </h2>
+          {form.backups.length > 0 && (
+            <button
+              type="button"
+              onClick={form.undoLast}
+              disabled={form.restoring !== null}
+              title={t.backupsHint}
+              className="shrink-0 rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-60 dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              {form.restoring ? t.restoring : t.undoLast}
+            </button>
+          )}
+        </div>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.backupsHint}</p>
         {form.backups.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t.noBackups}</p>
@@ -611,6 +765,82 @@ export default function Home() {
               </nav>
             )}
           </>
+        )}
+      </div>
+
+      <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
+            <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">05</span>
+            {t.doctor}
+          </h2>
+          <button
+            type="button"
+            onClick={form.loadDoctor}
+            disabled={form.doctorState !== "idle"}
+            className="shrink-0 rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-60 dark:border-slate-700 dark:hover:bg-slate-800"
+          >
+            {form.doctorState === "idle" ? t.doctorCheck : form.doctorState === "checking" ? t.doctorChecking : t.fixing}
+          </button>
+        </div>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.doctorHint}</p>
+        {form.issues.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t.noIssues}</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {form.issues.map((issue) => (
+              <li
+                key={issue.id}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                  issue.level === "error"
+                    ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950"
+                    : "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950"
+                }`}
+              >
+                <span className="flex-1">{issue.message}</span>
+                {issue.fixable && (
+                  <button
+                    type="button"
+                    disabled={form.doctorState !== "idle"}
+                    onClick={() => form.fixIssue(issue.id)}
+                    className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+                  >
+                    {t.fix}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
+        <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
+          <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">06</span>
+          {t.history}
+        </h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.historyHint}</p>
+        {form.history.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t.noHistory}</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {form.history.slice(0, 20).map((h, i) => (
+              <li
+                key={`${h.ts}-${i}`}
+                className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
+              >
+                <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 font-mono text-xs dark:bg-slate-800">
+                  {h.action}
+                </span>
+                <span className="flex-1 break-all font-mono text-[13px]">
+                  {[h.provider, h.model].filter(Boolean).join(" · ") || "—"}
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                  {new Date(h.ts).toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

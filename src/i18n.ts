@@ -81,7 +81,37 @@ export type Strings = {
   corruptBadge: string;
   backupsPrev: string;
   backupsNext: string;
-  backupsPage: (page: number, total: number) => string;  apiKeyRequired: string;
+  backupsPage: (page: number, total: number) => string;
+  searchProviders: string;
+  presets: string;
+  previewTitle: string;
+  previewNoChanges: string;
+  previewAdded: string;
+  previewRemoved: string;
+  confirmApply: string;
+  backToEdit: string;
+  previewing: string;
+  testPrompt: string;
+  promptTesting: string;
+  promptHint: string;
+  doctor: string;
+  doctorHint: string;
+  doctorCheck: string;
+  doctorChecking: string;
+  noIssues: string;
+  fix: string;
+  fixing: string;
+  fixFailed: string;
+  fixed: (what: string) => string;
+  history: string;
+  historyHint: string;
+  noHistory: string;
+  clone: string;
+  cloning: string;
+  cloneFailed: string;
+  cloned: (id: string) => string;
+  undoLast: string;
+  promptOk: (reply: string) => string;  apiKeyRequired: string;
   keyEnvNameRequired: string;
   keyFileRequired: string;
   testOk: (count: number) => string;
@@ -187,6 +217,36 @@ const en: Strings = {
   backupsPrev: "Previous",
   backupsNext: "Next",
   backupsPage: (page, total) => `Page ${page} of ${total}`,
+  searchProviders: "Search providers…",
+  presets: "Start from a preset",
+  previewTitle: "Review changes",
+  previewNoChanges: "No changes — the config already matches.",
+  previewAdded: "added",
+  previewRemoved: "removed",
+  confirmApply: "Confirm & Apply",
+  backToEdit: "Back to edit",
+  previewing: "Building preview…",
+  testPrompt: "Send test prompt",
+  promptTesting: "Asking…",
+  promptHint: "Sends one tiny prompt to prove the model answers. Costs a few tokens.",
+  doctor: "Config health",
+  doctorHint: "Static checks over the whole file. No network involved.",
+  doctorCheck: "Run checks",
+  doctorChecking: "Checking…",
+  noIssues: "No issues found.",
+  fix: "Fix",
+  fixing: "Fixing…",
+  fixFailed: "Fix failed.",
+  fixed: (what) => `Fixed: ${what}`,
+  history: "Change history",
+  historyHint: "Every save, delete, restore and clone, newest first.",
+  noHistory: "No changes recorded yet.",
+  clone: "Clone provider",
+  cloning: "Cloning…",
+  cloneFailed: "Clone failed.",
+  cloned: (id) => `Cloned as “${id}”. It is now loaded in the form.`,
+  undoLast: "Undo last change",
+  promptOk: (reply) => `Model answered: ${reply}`,
   apiKeyRequired: "api_key is required.",
   keyEnvNameRequired: "Choose an env var name to store the key in.",
   keyFileRequired: "Choose a file path to store the key in.",
@@ -294,6 +354,36 @@ const ar: Strings = {
   backupsPrev: "السابق",
   backupsNext: "التالي",
   backupsPage: (page, total) => `صفحة ${page} من ${total}`,
+  searchProviders: "ابحث في المزوّدين…",
+  presets: "ابدأ من قالب جاهز",
+  previewTitle: "مراجعة التغييرات",
+  previewNoChanges: "لا تغييرات — الإعداد مطابق أصلًا.",
+  previewAdded: "مُضاف",
+  previewRemoved: "محذوف",
+  confirmApply: "تأكيد وتطبيق",
+  backToEdit: "عودة للتحرير",
+  previewing: "جارٍ بناء المعاينة…",
+  testPrompt: "إرسال رسالة اختبار",
+  promptTesting: "جارٍ السؤال…",
+  promptHint: "يرسل رسالة صغيرة لإثبات رد النموذج. يكلف رموزًا قليلة.",
+  doctor: "صحة الإعداد",
+  doctorHint: "فحوصات ثابتة للملف كاملًا. بلا شبكة.",
+  doctorCheck: "تشغيل الفحص",
+  doctorChecking: "جارٍ الفحص…",
+  noIssues: "لا مشاكل.",
+  fix: "إصلاح",
+  fixing: "جارٍ الإصلاح…",
+  fixFailed: "فشل الإصلاح.",
+  fixed: (what) => `تم الإصلاح: ${what}`,
+  history: "سجل التغييرات",
+  historyHint: "كل حفظ وحذف واستعادة ونسخ، الأحدث أولًا.",
+  noHistory: "لا تغييرات مسجلة بعد.",
+  clone: "نسخ المزوّد",
+  cloning: "جارٍ النسخ…",
+  cloneFailed: "فشل النسخ.",
+  cloned: (id) => `تم النسخ باسم “${id}”. وهو محمّل الآن في النموذج.`,
+  undoLast: "التراجع عن آخر تغيير",
+  promptOk: (reply) => `أجاب النموذج: ${reply}`,
   apiKeyRequired: "مفتاح API مطلوب.",
   keyEnvNameRequired: "اختر اسم متغير بيئة لتخزين المفتاح.",
   keyFileRequired: "اختر مسار ملف لتخزين المفتاح.",

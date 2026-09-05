@@ -20,6 +20,8 @@ test("new provider: fill, validate, submit, then edit it", async ({ page }) => {
   await page.fill("#context_limit", "12345");
   await page.getByLabel("Attachments (images)").check();
   await page.getByRole("button", { name: "Submit & Apply to Opencode" }).click();
+  await expect(page.getByRole("dialog", { name: "Review changes" })).toBeVisible();
+  await page.getByRole("button", { name: "Confirm & Apply" }).click();
   await expect(page.getByText("Saved. Opencode will use it automatically.")).toBeVisible();
   await expect(page.getByText("Model: e2eprov/e2e-model")).toBeVisible();
 
@@ -56,14 +58,15 @@ test("theme toggle switches dark class and persists", async ({ page }) => {  awa
   await page.screenshot({ path: "shots/dark.png" });
 });
 
-test("backups list paginates", async ({ page }) => {
-  await page.goto("/");
+test("backups list paginates", async ({ page }) => {  await page.goto("/");
   await page.fill("#base_url", "https://api.example.com/v1");
   await page.fill("#api_key", "sk-e2e-test-key-123");
   await page.fill("#model_id", "pager-model");
   // Seven saves guarantee at least six backups (first write has nothing to back up).
   for (let i = 0; i < 7; i++) {
     await page.getByRole("button", { name: "Submit & Apply to Opencode" }).click();
+    await expect(page.getByRole("dialog", { name: "Review changes" })).toBeVisible();
+    await page.getByRole("button", { name: "Confirm & Apply" }).click();
     await expect(page.getByText("Saved. Opencode will use it automatically.")).toBeVisible();
   }
   await expect(page.getByText(/Page 1 of \d+/)).toBeVisible();
@@ -73,4 +76,42 @@ test("backups list paginates", async ({ page }) => {
   await pager.getByRole("button", { name: "Previous", exact: true }).click();
   await expect(page.getByText(/Page 1 of \d+/)).toBeVisible();
   await page.locator("div.rounded-2xl", { has: page.locator("h2", { hasText: "Backups" }) }).screenshot({ path: "shots/backups-pager.png" });
+});
+
+test("preview shows the diff and back-to-edit cancels", async ({ page }) => {
+  await page.goto("/");
+  await page.fill("#base_url", "https://preview.example.com/v1");
+  await page.fill("#api_key", "sk-e2e-test-key-123");
+  await page.fill("#model_id", "preview-model");
+  await page.getByRole("button", { name: "Submit & Apply to Opencode" }).click();
+  const dialog = page.getByRole("dialog", { name: "Review changes" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("preview-model").first()).toBeVisible();
+  // Secrets must never render in the diff, even though the user just typed one.
+  await expect(dialog.getByText("sk-e2e-test-key-123")).toHaveCount(0);
+  await page.getByRole("button", { name: "Back to edit" }).click();
+  await expect(dialog).not.toBeVisible();
+  // Nothing was written: the previewed model must not appear in the dropdown.
+  await expect(
+    page.locator("#existing_provider option", { hasText: "preview-model" })
+  ).toHaveCount(0);
+});
+
+test("provider search filters the dropdown", async ({ page }) => {
+  await page.goto("/");
+  await page.getByPlaceholder("Search providers…").fill("e2eprov");
+  await expect(page.locator('#existing_provider option[value="e2eprov"]')).toBeAttached();
+  await page.getByPlaceholder("Search providers…").fill("zzz-no-such-provider");
+  await expect(page.locator("#existing_provider option")).toHaveCount(1);
+});
+
+test("doctor runs and history lists saves", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Run checks" }).click();
+  // Either a clean bill or reported issues — both prove the check ran.
+  await expect(
+    page.getByText(/No issues found\.|has no context limit|has no API key|does not match/)
+  ).toBeVisible({ timeout: 15000 });
+  await expect(page.locator("h2", { hasText: "Change history" })).toBeVisible();
+  await expect(page.getByText("save", { exact: true }).first()).toBeVisible();
 });

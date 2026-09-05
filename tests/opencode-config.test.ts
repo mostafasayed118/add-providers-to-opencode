@@ -400,6 +400,92 @@ test("restore rejects unrecognized filenames", async () => {
   await assert.rejects(restoreBackup(cfgPath(), "opencode.json"), /unrecognized/);
 });
 
+test("cloneProvider duplicates the entry under a fresh id", async () => {
+  const { cloneProvider } = await import("../src/lib/opencode-config");
+  const { newId } = await cloneProvider(cfgPath(), "SMALL");
+  assert.match(newId, /^small-copy/);
+  const raw = await readRaw();
+  assert.deepEqual(raw.provider[newId].options, raw.provider.small.options);
+  assert.notEqual(newId, "small");
+});
+
+test("history records actions newest-first without secrets", async () => {
+  const { logHistory, readHistory } = await import("../src/lib/opencode-config");
+  await logHistory(cfgPath(), "save", { provider: "p1", model: "p1/m1" });
+  await logHistory(cfgPath(), "delete", { provider: "p2", model: null });
+  const entries = await readHistory(cfgPath(), 10);
+  assert.equal(entries[0].action, "delete");
+  assert.equal(entries[1].action, "save");
+  assert.equal(JSON.stringify(entries).includes("sk-"), false);
+});
+
+test("checkConfig flags empty, keyless, dangling and limitless entries", async () => {
+  const { checkConfig } = await import("../src/lib/opencode-config");
+  const issues = checkConfig({
+    provider: {
+      empty: { options: { baseURL: "https://x.example.com", apiKey: "k" }, models: {} },
+      nokey: {
+        options: { baseURL: "https://x.example.com" },
+        models: { m: { name: "m" } },
+      },
+      badurl: {
+        options: { baseURL: "not a url", apiKey: "k" },
+        models: { m: { name: "m", limit: { context: 1 } } },
+      },
+      nolimit: {
+        options: { baseURL: "https://x.example.com", apiKey: "k" },
+        models: { m: { name: "m" } },
+      },
+    },
+    model: "ghost/nothing",
+  });
+  const ids = issues.map((i) => i.id);
+  assert.ok(ids.includes("empty:empty"));
+  assert.ok(ids.includes("nokey:nokey"));
+  assert.ok(ids.includes("badurl:badurl"));
+  assert.ok(ids.some((id) => id.startsWith("nolimit:")));
+  assert.ok(ids.includes("dangling-model"));
+  assert.equal(
+    issues.find((i) => i.id === "dangling-model")?.fixable,
+    true
+  );
+});
+
+test("mergeProviderEntry is pure and reusable for preview", async () => {
+  const { mergeProviderEntry } = await import("../src/lib/opencode-config");
+  const merged = mergeProviderEntry(
+    { provider: {}, model: null },
+    {
+      base_url: "https://api.example.com/v1",
+      api_key: "sk-test-12345678",
+      model_id: "m1",
+      providerType: "custom",
+      providerId: "pv",
+      context_limit: undefined,
+      output_limit: undefined,
+      tool_call: true,
+      reasoning: false,
+      attachment: false,
+      keyStorage: "inline",
+      headers: [],
+    }
+  );
+  assert.equal(merged.model, "pv/m1");
+  assert.ok("pv" in merged.providers);
+});
+
+test("redactSecrets hides keys and header values, keeps structure", async () => {
+  const { redactSecrets } = await import("../src/lib/opencode-config");
+  const out = redactSecrets({
+    options: { baseURL: "https://x.example.com", apiKey: "sk-live", headers: { A: "s3", B: "" } },
+    models: { m: { name: "m" } },
+  }) as Record<string, Record<string, unknown>>;
+  assert.equal(out.options.apiKey, "•••");
+  assert.deepEqual(out.options.headers, { A: "•••", B: "" });
+  assert.equal(out.options.baseURL, "https://x.example.com");
+  assert.equal((out.models.m as Record<string, unknown>).name, "m");
+});
+
 test("cleanup temp home", () => {
   rmSync(tmpHome, { recursive: true, force: true });
   assert.equal(true, true);

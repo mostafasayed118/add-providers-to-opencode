@@ -5,20 +5,23 @@ OpenAI-compatible / custom) and apply it to the **global** opencode config so
 running `opencode` reflects it automatically.
 
 Features: input validation, **Test connection** (probes `{baseURL}/models` and
-offers discovered model IDs), edit existing providers (blank key keeps the stored
-key), per-model capabilities (context/output limits, tool calling, reasoning,
+offers discovered model IDs), **test prompt** (one tiny completion proving the
+model answers), edit existing providers (blank key keeps the stored key),
+per-model capabilities (context/output limits, tool calling, reasoning,
 image `modalities`, reasoning stream field), API key storage options (inline,
 env-var or file reference), custom headers, small_model, multi-model providers,
-provider delete with active-model fallback, backup list + restore, timestamped
-backups + corrupt-file recovery, concurrent-save locking, English/Arabic UI,
+provider delete with active-model fallback, provider search, one-click presets,
+**diff preview with secrets redacted**, backup list + restore + one-click undo,
+config doctor with auto-fixes, change history, timestamped backups +
+corrupt-file recovery, concurrent-save locking, English/Arabic UI,
 auto-update from GitHub Releases (desktop build).
 
 ## Run end-to-end
 
 ```bash
 npm install
-npm test      # 33 unit + integration tests (isolated temp home, real config untouched)
-npm run test:e2e  # browser spec against a dev server with isolated home
+npm test      # 42 unit + integration tests (isolated temp home, real config untouched)
+npm run test:e2e  # browser specs against a dev server with isolated home
 npm run dev
 # open http://localhost:3000
 ```

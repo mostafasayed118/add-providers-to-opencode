@@ -6,6 +6,7 @@ import {
   type ProviderSummary,
 } from "@/lib/provider-schema";
 import type { Strings } from "@/i18n";
+import { PRESETS, type Preset } from "@/lib/presets";
 
 export type ProviderType = "openai-compatible" | "custom";
 
@@ -25,6 +26,29 @@ export type BackupRow = {
   kind: "backup" | "corrupt";
   bytes: number;
   mtimeMs: number;
+};
+
+export type DiffLine = { type: "same" | "add" | "del"; text: string };
+
+export type PreviewData = {
+  model: string;
+  changed: boolean;
+  sections: Array<{ title: string; lines: DiffLine[] }>;
+};
+
+export type DoctorIssue = {
+  id: string;
+  level: "error" | "warn";
+  provider?: string;
+  message: string;
+  fixable: boolean;
+};
+
+export type HistoryEntry = {
+  ts: string;
+  action: string;
+  provider?: string | null;
+  model?: string | null;
 };
 
 export function useProviderForm(t: Strings) {
@@ -62,6 +86,14 @@ export function useProviderForm(t: Strings) {
   const [onboardDismissed, setOnboardDismissed] = useState(false);
   const [backups, setBackups] = useState<BackupRow[]>([]);
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewData | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [promptState, setPromptState] = useState<"idle" | "testing" | "ok" | "error">("idle");
+  const [promptMsg, setPromptMsg] = useState<string | null>(null);
+  const [issues, setIssues] = useState<DoctorIssue[]>([]);
+  const [doctorState, setDoctorState] = useState<"idle" | "checking" | "fixing">("idle");
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [cloning, setCloning] = useState(false);
 
   const selectedProvider = providers.find((p) => p.id === selected) ?? null;
   // Blank key is only acceptable when editing a provider that already has one.
@@ -98,9 +130,32 @@ export function useProviderForm(t: Strings) {
     }
   }
 
+  async function refreshDoctor() {
+    try {
+      const res = await fetch("/api/doctor");
+      const d = (await res.json()) as { ok: boolean; issues?: DoctorIssue[] };
+      if (d.ok && Array.isArray(d.issues)) setIssues(d.issues);
+    } catch {
+      // Doctor panel is best-effort.
+    }
+  }
+
+  async function refreshHistory() {
+    try {
+      const res = await fetch("/api/history");
+      const d = (await res.json()) as { ok: boolean; entries?: HistoryEntry[] };
+      if (d.ok && Array.isArray(d.entries)) setHistory(d.entries);
+    } catch {
+      // History panel is best-effort.
+    }
+  }
+
+  async function refreshAll() {
+    await Promise.all([refreshProviders(), refreshBackups(), refreshDoctor(), refreshHistory()]);
+  }
+
   useEffect(() => {
-    void refreshProviders();
-    void refreshBackups();
+    void refreshAll();
   }, []);
 
   const runValidation = useCallback((): FieldErrors => {
@@ -233,6 +288,10 @@ export function useProviderForm(t: Strings) {
     setTestMsg(null);
     setDiscovered([]);
     setDeleting("idle");
+    setPreview(null);
+    setPreviewing(false);
+    setPromptState("idle");
+    setPromptMsg(null);
     setErrors({});
     setResult(null);
     setStatus("idle");
@@ -299,44 +358,78 @@ export function useProviderForm(t: Strings) {
     }
   }
 
+  function buildPayload(): Record<string, unknown> {
+    return {
+      base_url: baseUrl,
+      api_key: apiKey.trim(),
+      model_id: modelId,
+      providerType,
+      providerId: providerId.trim().toLowerCase() || "custom",
+      ...(loadedModelId && loadedModelId !== modelId.trim()
+        ? { editModelId: loadedModelId }
+        : {}),
+      ...(contextLimit.trim() ? { context_limit: Number(contextLimit.trim()) } : {}),
+      ...(outputLimit.trim() ? { output_limit: Number(outputLimit.trim()) } : {}),
+      tool_call: toolCall,
+      reasoning,
+      attachment,
+      ...(reasoningField ? { reasoning_field: reasoningField } : {}),
+      keyStorage,
+      ...(keyEnvName.trim() ? { keyEnvName: keyEnvName.trim() } : {}),
+      ...(keyFile.trim() ? { keyFile: keyFile.trim() } : {}),
+      headers: headerRows
+        .filter((r) => r.name.trim() !== "")
+        .map((r) => ({ name: r.name.trim(), value: r.value })),
+      ...(smallModel.trim() ? { small_model: smallModel.trim() } : {}),
+    };
+  }
+
+  /** Submit shows a diff preview first; the write happens on confirm. */
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setTouched(true);
     setOnboardDismissed(true);
     setResult(null);
+    setPreview(null);
     if (Object.keys(runValidation()).length > 0) {
       setStatus("error");
       return;
     }
+    setPreviewing(true);
+    setErrors({});
+    try {
+      const res = await fetch("/api/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildPayload()),
+      });
+      const data = (await res.json()) as
+        | (PreviewData & { ok: true })
+        | { ok: false; errors: FieldErrors };
+      if (!res.ok || !data.ok) {
+        setErrors((data as { errors?: FieldErrors }).errors ?? { _form: t.saveFailed });
+        setStatus("error");
+        return;
+      }
+      setPreview({ model: data.model, changed: data.changed, sections: data.sections });
+      setStatus("idle");
+    } catch {
+      setErrors({ _form: t.networkError });
+      setStatus("error");
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function confirmSubmit() {
+    setPreview(null);
     setStatus("saving");
     setErrors({});
     try {
       const res = await fetch("/api/save-provider", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          base_url: baseUrl,
-          api_key: apiKey.trim(),
-          model_id: modelId,
-          providerType,
-          providerId: providerId.trim().toLowerCase() || "custom",
-          ...(loadedModelId && loadedModelId !== modelId.trim()
-            ? { editModelId: loadedModelId }
-            : {}),
-          ...(contextLimit.trim() ? { context_limit: Number(contextLimit.trim()) } : {}),
-          ...(outputLimit.trim() ? { output_limit: Number(outputLimit.trim()) } : {}),
-          tool_call: toolCall,
-          reasoning,
-          attachment,
-          ...(reasoningField ? { reasoning_field: reasoningField } : {}),
-          keyStorage,
-          ...(keyEnvName.trim() ? { keyEnvName: keyEnvName.trim() } : {}),
-          ...(keyFile.trim() ? { keyFile: keyFile.trim() } : {}),
-          headers: headerRows
-            .filter((r) => r.name.trim() !== "")
-            .map((r) => ({ name: r.name.trim(), value: r.value })),
-          ...(smallModel.trim() ? { small_model: smallModel.trim() } : {}),
-        }),
+        body: JSON.stringify(buildPayload()),
       });
       const data = (await res.json()) as
         | (SaveSuccess & { ok: true })
@@ -353,12 +446,127 @@ export function useProviderForm(t: Strings) {
         notice: (data as { notice?: string | null }).notice ?? null,
       });
       setStatus("success");
-      await refreshProviders();
-      await refreshBackups();
+      await refreshAll();
     } catch {
       setErrors({ _form: t.networkError });
       setStatus("error");
     }
+  }
+
+  function applyPreset(p: Preset) {
+    setBaseUrl(p.baseURL);
+    setProviderId(p.providerId);
+    setProviderType("custom");
+    if (p.context) setContextLimit(String(p.context));
+    setErrors({});
+    setResult(null);
+    setPreview(null);
+    setStatus("idle");
+  }
+
+  async function testPrompt() {
+    setPromptState("testing");
+    setPromptMsg(null);
+    try {
+      const res = await fetch("/api/test-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base_url: baseUrl,
+          api_key: apiKey.trim(),
+          model_id: modelId.trim(),
+        }),
+      });
+      const data = (await res.json()) as { ok: boolean; reply?: string; error?: string };
+      if (data.ok) {
+        setPromptState("ok");
+        setPromptMsg(t.promptOk(data.reply ?? ""));
+      } else {
+        setPromptState("error");
+        setPromptMsg(data.error ?? t.testFailed);
+      }
+    } catch {
+      setPromptState("error");
+      setPromptMsg(t.networkError);
+    }
+  }
+
+  async function loadDoctor() {
+    setDoctorState("checking");
+    await refreshDoctor();
+    setDoctorState("idle");
+  }
+
+  async function fixIssue(id: string) {
+    setDoctorState("fixing");
+    try {
+      const res = await fetch("/api/doctor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        fixed?: string;
+        errors?: FieldErrors;
+      };
+      if (!res.ok || !data.ok) {
+        setErrors(data.errors ?? { _form: t.fixFailed });
+        setStatus("error");
+      } else {
+        setErrors({ _form: t.fixed(data.fixed ?? "") });
+        setStatus("error");
+        await refreshAll();
+      }
+    } catch {
+      setErrors({ _form: t.networkError });
+      setStatus("error");
+    } finally {
+      setDoctorState("idle");
+    }
+  }
+
+  async function cloneSelected() {
+    if (!selectedProvider || cloning) return;
+    setCloning(true);
+    try {
+      const res = await fetch("/api/clone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: selectedProvider.id }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        newId?: string;
+        errors?: FieldErrors;
+      };
+      if (!res.ok || !data.ok || !data.newId) {
+        setErrors(data.errors ?? { _form: t.cloneFailed });
+        setStatus("error");
+        return;
+      }
+      await refreshAll();
+      const p = (
+        (await (await fetch("/api/current-config")).json()) as {
+          providers?: ProviderSummary[];
+        }
+      ).providers?.find((x) => x.id === data.newId);
+      if (p) loadProvider(p);
+      else {
+        setErrors({ _form: t.cloned(data.newId) });
+        setStatus("error");
+      }
+    } catch {
+      setErrors({ _form: t.networkError });
+      setStatus("error");
+    } finally {
+      setCloning(false);
+    }
+  }
+
+  async function undoLast() {
+    if (backups.length === 0) return;
+    await restore(backups[0].file);
   }
 
   async function loadCurrent() {
@@ -405,8 +613,7 @@ export function useProviderForm(t: Strings) {
         setDeleting("idle");
         return;
       }
-      await refreshProviders();
-      await refreshBackups();
+      await refreshAll();
       reset();
       setErrors({
         _form: data.clearedActiveModel
@@ -439,8 +646,7 @@ export function useProviderForm(t: Strings) {
         setErrors(data.errors ?? { _form: t.restoreFailed });
         setStatus("error");
       } else {
-        await refreshProviders();
-        await refreshBackups();
+        await refreshAll();
         reset();
         setErrors({ _form: t.restored(data.model ?? t.none) });
         setStatus("error");
@@ -489,6 +695,14 @@ export function useProviderForm(t: Strings) {
     onboardDismissed,
     backups,
     restoring,
+    preview,
+    previewing,
+    promptState,
+    promptMsg,
+    issues,
+    doctorState,
+    history,
+    cloning,
     setBaseUrl,
     setApiKey,
     setModelId,
@@ -507,14 +721,23 @@ export function useProviderForm(t: Strings) {
     setSmallModel,
     setShowKey,
     setDeleting,
+    setPreview,
     setOnboardDismissed,
     runValidation,
     handleSelectChange,
     handleModelChange,
     loadActiveModel,
+    applyPreset,
     submit,
+    confirmSubmit,
+    closePreview: () => setPreview(null),
     loadCurrent,
     testConnection,
+    testPrompt,
+    loadDoctor,
+    fixIssue,
+    cloneSelected,
+    undoLast,
     confirmDelete,
     restore,
     reset,

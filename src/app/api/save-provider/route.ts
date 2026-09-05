@@ -3,6 +3,7 @@ import {
   getGlobalConfigPath,
   getStoredApiKey,
   getStoredHeaders,
+  logHistory,
   writeKeyFile,
   providerSchema,
   saveProviderConfig,
@@ -116,6 +117,10 @@ export async function POST(req: Request) {
 
   try {
     const result = await saveProviderConfig(parsed.data);
+    await logHistory(getGlobalConfigPath(), "save", {
+      provider: effId,
+      model: result.model,
+    }).catch(() => {});
     return NextResponse.json({ ok: true, ...result, notice });
   } catch (err: unknown) {
     const e = err as NodeJS.ErrnoException & { message?: string };
