@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CapabilityFieldset } from "@/components/CapabilityFieldset";
-import { Field, inputClass } from "@/components/form-fields";
+import { Field, SectionLabel, inputClass } from "@/components/form-fields";
 import { ProviderSelect } from "@/components/ProviderSelect";
 import { useProviderForm, type ProviderType } from "@/hooks/useProviderForm";
 import { strings, type Locale } from "@/i18n";
@@ -34,30 +34,30 @@ export default function Home() {
       dir={t.dir}
       className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center px-4 py-10"
     >
-      <div className="rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200 sm:p-8">
+      <div className="animate-enter rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 sm:p-8">
         <header className="mb-6 flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{t.title}</h1>
+            <h1 className="text-balance text-2xl font-semibold tracking-tight">{t.title}</h1>
             <p className="mt-1 text-sm text-slate-600">{t.subtitle}</p>
           </div>
           <button
             type="button"
             onClick={() => setLocale((l) => (l === "en" ? "ar" : "en"))}
-            className="shrink-0 rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold hover:bg-slate-50"
+            className="shrink-0 rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold transition duration-200 hover:bg-slate-50 active:scale-[0.98]"
           >
             {t.toggleLang}
           </button>
         </header>
 
         {form.showOnboarding && (
-          <div role="status" className="mb-5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          <div role="status" className="animate-enter mb-5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-900">
             <p>{t.onboarding(form.providers.length, form.activeModel)}</p>
             <div className="mt-2 flex gap-2">
               {form.activeModel && (
                 <button
                   type="button"
                   onClick={form.loadActiveModel}
-                  className="rounded-lg bg-blue-600 px-3 py-1 text-sm font-semibold text-white hover:bg-blue-700"
+                  className="rounded-lg bg-blue-600 px-3 py-1 text-sm font-semibold text-white transition duration-200 hover:bg-blue-700 active:scale-[0.98]"
                 >
                   {t.loadActive}
                 </button>
@@ -65,7 +65,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => form.setOnboardDismissed(true)}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-medium hover:bg-slate-50"
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98]"
               >
                 {t.startFresh}
               </button>
@@ -74,6 +74,7 @@ export default function Home() {
         )}
 
         <form onSubmit={form.submit} noValidate className="space-y-5">
+          <SectionLabel n="01">{t.provider}</SectionLabel>
           <ProviderSelect
             t={t}
             providers={form.providers}
@@ -109,9 +110,9 @@ export default function Home() {
               {PROVIDER_TYPES.map((o) => (
                 <label
                   key={o.v}
-                  className={`cursor-pointer rounded-lg border px-3 py-2 text-sm ${
+                  className={`cursor-pointer rounded-lg border px-3 py-2 text-sm transition duration-200 active:scale-[0.99] ${
                     form.providerType === o.v
-                      ? "border-blue-600 bg-blue-50"
+                      ? "border-blue-600 bg-blue-50 shadow-sm shadow-blue-900/10"
                       : "border-slate-300 hover:border-slate-400"
                   }`}
                 >
@@ -145,6 +146,7 @@ export default function Home() {
             </Field>
           )}
 
+          <SectionLabel n="02">{t.sectionCredentials}</SectionLabel>
           <Field
             label={t.baseUrl}
             htmlFor="base_url"
@@ -190,7 +192,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => form.setShowKey((s) => !s)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-slate-600 transition duration-200 hover:bg-slate-100 active:scale-95"
                 aria-pressed={form.showKey}
               >
                 {form.showKey ? t.hide : t.show}
@@ -204,9 +206,9 @@ export default function Home() {
               {STORAGE_OPTIONS.map((o) => (
                 <label
                   key={o.v}
-                  className={`cursor-pointer rounded-lg border px-3 py-2 text-sm ${
+                  className={`cursor-pointer rounded-lg border px-3 py-2 text-sm transition duration-200 active:scale-[0.99] ${
                     form.keyStorage === o.v
-                      ? "border-blue-600 bg-blue-50"
+                      ? "border-blue-600 bg-blue-50 shadow-sm shadow-blue-900/10"
                       : "border-slate-300 hover:border-slate-400"
                   }`}
                 >
@@ -255,6 +257,7 @@ export default function Home() {
             )}
           </fieldset>
 
+          <SectionLabel n="03">{t.sectionModel}</SectionLabel>
           <Field label={t.modelId} htmlFor="model_id" error={form.errors.model_id}>
             <input
               id="model_id"
@@ -283,7 +286,7 @@ export default function Home() {
               type="button"
               onClick={form.testConnection}
               disabled={form.testing === "testing"}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {form.testing === "testing" ? t.testing : t.testConnection}
             </button>
@@ -399,7 +402,7 @@ export default function Home() {
           {form.errors._form && (
             <div
               role={form.status === "success" ? "status" : "alert"}
-              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+              className="animate-enter rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
             >
               {form.errors._form}
             </div>
@@ -408,13 +411,13 @@ export default function Home() {
           {form.status === "success" && form.result && (
             <div
               role="status"
-              className="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-900"
+              className="animate-enter rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-900"
             >
               <p className="font-medium">{t.saved}</p>
-              <p className="mt-1 break-all">{t.savedModel(form.result.model)}</p>
-              <p className="break-all">{t.savedFile(form.result.path)}</p>
+              <p className="mt-1 break-all font-mono text-[13px]">{t.savedModel(form.result.model)}</p>
+              <p className="break-all font-mono text-[13px]">{t.savedFile(form.result.path)}</p>
               {form.result.backup && (
-                <p className="break-all">{t.savedBackup(form.result.backup)}</p>
+                <p className="break-all font-mono text-[13px]">{t.savedBackup(form.result.backup)}</p>
               )}
               {form.result.notice && <p className="mt-1 break-all">{form.result.notice}</p>}
             </div>
@@ -424,21 +427,21 @@ export default function Home() {
             <button
               type="submit"
               disabled={form.status === "saving"}
-              className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow shadow-blue-900/20 transition duration-200 hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {form.status === "saving" ? t.saving : t.submit}
             </button>
             <button
               type="button"
               onClick={form.loadCurrent}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-50"
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98]"
             >
               {t.loadCurrent}
             </button>
             <button
               type="button"
               onClick={form.reset}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-50"
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98]"
             >
               {t.reset}
             </button>
@@ -454,14 +457,14 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={form.confirmDelete}
-                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition duration-200 hover:bg-red-700 active:scale-[0.98]"
                   >
                     {t.deleteYes}
                   </button>
                   <button
                     type="button"
                     onClick={() => form.setDeleting("idle")}
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50"
+                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98]"
                   >
                     {t.cancel}
                   </button>
@@ -483,8 +486,11 @@ export default function Home() {
         </form>
       </div>
 
-      <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200 sm:p-8">
-        <h2 className="text-lg font-semibold">{t.backups}</h2>
+      <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 sm:p-8">
+        <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
+          <span className="font-mono text-sm font-semibold tabular-nums text-blue-600">04</span>
+          {t.backups}
+        </h2>
         <p className="mt-1 text-sm text-slate-600">{t.backupsHint}</p>
         {form.backups.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">{t.noBackups}</p>
@@ -496,8 +502,8 @@ export default function Home() {
                 className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm"
               >
                 <span className="flex-1 break-all">
-                  <span dir="ltr" className="inline-block">{b.file}</span>{" "}
-                  <span className="text-xs text-slate-500">
+                  <span dir="ltr" className="inline-block font-mono text-[13px]">{b.file}</span>{" "}
+                  <span className="text-xs tabular-nums text-slate-500">
                     ({formatBytes(b.bytes)}
                     {b.kind === "corrupt" ? `, ${t.corruptBadge}` : ""})
                   </span>
@@ -506,7 +512,7 @@ export default function Home() {
                   type="button"
                   disabled={form.restoring !== null}
                   onClick={() => form.restore(b.file)}
-                  className="shrink-0 rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+                  className="shrink-0 rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-60"
                 >
                   {form.restoring === b.file ? t.restoring : t.restore}
                 </button>

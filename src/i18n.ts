@@ -8,7 +8,8 @@ export type Strings = {
   footer: string;
   provider: string;
   newProvider: string;
-  modelToEdit: string;
+  sectionCredentials: string;
+  sectionModel: string;  modelToEdit: string;
   newModel: string;
   otherModelsKept: string;
   providerType: string;
@@ -104,6 +105,8 @@ const en: Strings = {
   footer: "Writes global ~/.config/opencode/opencode.json and sets top-level model.",
   provider: "Provider",
   newProvider: "+ New provider…",
+  sectionCredentials: "Credentials",
+  sectionModel: "Model",
   modelToEdit: "Model to edit",
   newModel: "+ New model…",
   otherModelsKept: "Other models on this provider are left untouched.",
@@ -205,6 +208,8 @@ const ar: Strings = {
   footer: "يكتب ‎~/.config/opencode/opencode.json‎ العام ويضبط النموذج.",
   provider: "المزوّد",
   newProvider: "+ مزوّد جديد…",
+  sectionCredentials: "بيانات الدخول",
+  sectionModel: "النموذج",
   modelToEdit: "النموذج المراد تحريره",
   newModel: "+ نموذج جديد…",
   otherModelsKept: "بقية النماذج لدى هذا المزوّد تبقى كما هي.",
