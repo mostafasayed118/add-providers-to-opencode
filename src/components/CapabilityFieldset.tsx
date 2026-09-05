@@ -1,4 +1,4 @@
-import { CheckRow, Field, inputClass } from "./form-fields";
+import { CheckRow, Field, inputClass, selectClass } from "./form-fields";
 import type { FieldErrors } from "@/lib/provider-schema";
 import type { Strings } from "@/i18n";
 
@@ -65,7 +65,7 @@ export function CapabilityFieldset({
             id="reasoning_field"
             value={values.reasoningField}
             onChange={(e) => onChange({ reasoningField: e.target.value })}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className={selectClass}
           >
             <option value="">{t.reasoningFieldNone}</option>
             {REASONING_FIELDS.map((f) => (

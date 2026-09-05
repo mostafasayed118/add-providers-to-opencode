@@ -7,6 +7,13 @@
   outline-offset: 2px;
 }
 
+/* Tell the browser form controls render in dark colors when .dark is set.
+   Without this, native controls (inputs, selects, checkboxes) keep their
+   light UA theme even when author dark: classes match. */
+.dark {
+  color-scheme: dark;
+}
+
 /* Section entrance: gentle rise + fade, transform/opacity only. */
 @keyframes rise-in {
   from {

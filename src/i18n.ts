@@ -3,6 +3,7 @@ export type Locale = "en" | "ar";
 export type Strings = {
   dir: "ltr" | "rtl";
   toggleLang: string;
+  toggleTheme: string;
   title: string;
   subtitle: string;
   footer: string;
@@ -99,6 +100,7 @@ export type Strings = {
 const en: Strings = {
   dir: "ltr",
   toggleLang: "عربي",
+  toggleTheme: "Toggle dark mode",
   title: "Opencode Provider Setup",
   subtitle:
     "Enter your endpoint, key, and model. On submit we validate and write the global opencode config automatically.",
@@ -203,6 +205,7 @@ const en: Strings = {
 const ar: Strings = {
   dir: "rtl",
   toggleLang: "EN",
+  toggleTheme: "تبديل الوضع الداكن",
   title: "إعداد مزوّد Opencode",
   subtitle: "أدخل العنوان والمفتاح والنموذج. عند الإرسال نتحقق ونكتب إعداد opencode العام تلقائيًا.",
   footer: "يكتب ‎~/.config/opencode/opencode.json‎ العام ويضبط النموذج.",

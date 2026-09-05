@@ -37,3 +37,22 @@ test("arabic toggle flips layout direction", async ({ page }) => {
   await expect(page.locator("main[dir='rtl']")).toBeVisible();
   await expect(page.getByRole("heading", { name: "إعداد مزوّد Opencode" })).toBeVisible();
 });
+
+test("theme toggle switches dark class and persists", async ({ page }) => {
+  await page.goto("/");
+  const toggle = page.getByRole("button", { name: "Toggle dark mode" });
+  await toggle.click();
+  await expect(page.locator("html.dark")).toBeAttached();
+  await expect.poll(async () => page.evaluate(() => localStorage.getItem("theme"))).toBe(
+    "dark"
+  );
+  await page.reload();
+  await expect(page.locator("html.dark")).toBeAttached();
+  // Theme change cross-fades via CSS transitions; let it settle first.
+  await page.waitForTimeout(500);
+  const bg = await page.evaluate(() =>
+    getComputedStyle(document.getElementById("base_url")!).backgroundColor
+  );
+  expect(bg).toBe("rgb(15, 23, 42)");
+  await page.screenshot({ path: "shots/dark.png" });
+});
