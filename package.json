@@ -1,6 +1,6 @@
 {
   "name": "opencode-provider-config-tool",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Desktop-ready tool to configure opencode global provider (base_url, api_key, model_id)",
   "author": "Mustafa Sayed",
