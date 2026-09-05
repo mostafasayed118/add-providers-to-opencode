@@ -1,0 +1,8 @@
+node_modules/
+.next/
+out/
+dist/
+tsconfig.tsbuildinfo
+*.bak.*
+*.corrupt-*
+.DS_Store
