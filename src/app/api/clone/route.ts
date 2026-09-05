@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  cloneProvider,
-  getGlobalConfigPath,
-  logHistory,
-} from "@/lib/opencode-config";
+import { cloneProvider, logHistory } from "@/lib/opencode-config";
+import { configPathFromBody } from "@/lib/route-target";
 
 export const dynamic = "force-dynamic";
 
@@ -24,21 +21,27 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+  let configPath: string;
   try {
-    const configPath = getGlobalConfigPath();
+    configPath = await configPathFromBody(body);
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { status: 400 }
+    );
+  }
+  try {
     const result = await cloneProvider(configPath, providerId);
     await logHistory(configPath, "clone", {
       provider: providerId.trim().toLowerCase(),
       model: result.newId,
-    });
+    }).catch(() => {});
     return NextResponse.json({ ok: true, ...result });
   } catch (err: unknown) {
     return NextResponse.json(
       {
         ok: false,
-        errors: {
-          _form: err instanceof Error ? err.message : "Clone failed.",
-        },
+        errors: { _form: err instanceof Error ? err.message : "Clone failed." },
       },
       { status: 500 }
     );

@@ -14,6 +14,45 @@ export function getGlobalConfigPath(): string {
   return path.join(os.homedir(), ".config", "opencode", "opencode.json");
 }
 
+export type ConfigTarget =
+  | { kind: "global" }
+  | { kind: "project"; dir: string }
+  | { kind: "custom"; path: string };
+
+/** Resolve which config file an operation targets. Project dirs and custom
+ *  parents must exist; the file itself is created on first write. */
+export async function resolveConfigPath(t: unknown): Promise<string> {
+  const target = (t ?? { kind: "global" }) as ConfigTarget;
+  if (!target.kind || target.kind === "global") return getGlobalConfigPath();
+  if (target.kind === "project") {
+    if (typeof target.dir !== "string" || !target.dir.trim()) {
+      throw new Error("Choose a project folder first.");
+    }
+    const dir = target.dir.trim();
+    const stat = await fs.stat(dir).catch(() => null);
+    if (!stat?.isDirectory()) throw new Error(`Project folder not found: ${dir}`);
+    return path.join(dir, "opencode.json");
+  }
+  if (target.kind === "custom") {
+    if (typeof target.path !== "string" || !target.path.trim()) {
+      throw new Error("Choose a config file first.");
+    }
+    const p = target.path.trim();
+    const parent = path.dirname(p);
+    const stat = await fs.stat(parent).catch(() => null);
+    if (!stat?.isDirectory()) throw new Error(`Folder not found: ${parent}`);
+    if (!/\.jsonc?$/.test(p)) throw new Error("Config file must end in .json or .jsonc.");
+    return p;
+  }
+  throw new Error("Unknown config target.");
+}
+
+export function targetLabel(t: ConfigTarget): string {
+  if (t.kind === "project") return `project:${t.dir}`;
+  if (t.kind === "custom") return t.path;
+  return "global";
+}
+
 const LOCK_WAIT_MS = 10_000;
 const LOCK_STALE_MS = 15_000;
 
@@ -608,7 +647,10 @@ export function mergeProviderEntry(
   };
 }
 
-export async function saveProviderConfig(input: unknown): Promise<{
+export async function saveProviderConfig(
+  input: unknown,
+  configPath: string = getGlobalConfigPath()
+): Promise<{
   path: string;
   model: string;
   backup: string | null;
@@ -620,7 +662,6 @@ export async function saveProviderConfig(input: unknown): Promise<{
     // here; reaching this means a programming error, not user input.
     throw new Error("api_key is required to save a provider.");
   }
-  const configPath = getGlobalConfigPath();
   await fs.mkdir(path.dirname(configPath), { recursive: true });
   return withConfigLock(configPath, async () => {
     const existing = await readExistingConfig(configPath);

@@ -573,6 +573,27 @@ test("importPack merges entries and keeps existing ones", async () => {
   assert.equal(raw.provider.imp1.options.apiKey, "{env:IMP_KEY}");
 });
 
+test("resolveConfigPath handles global/project/custom targets", async () => {
+  const { resolveConfigPath, getGlobalConfigPath } = await import("../src/lib/opencode-config");
+  assert.equal(await resolveConfigPath(undefined), getGlobalConfigPath());
+  assert.equal(await resolveConfigPath({ kind: "global" }), getGlobalConfigPath());
+  assert.equal(
+    await resolveConfigPath({ kind: "project", dir: tmpHome }),
+    path.join(tmpHome, "opencode.json")
+  );
+  await assert.rejects(resolveConfigPath({ kind: "project", dir: "" }), /folder/);
+  await assert.rejects(
+    resolveConfigPath({ kind: "project", dir: path.join(tmpHome, "missing") }),
+    /not found/
+  );
+  assert.equal(
+    await resolveConfigPath({ kind: "custom", path: path.join(tmpHome, "c.json") }),
+    path.join(tmpHome, "c.json")
+  );
+  await assert.rejects(resolveConfigPath({ kind: "custom", path: "c.txt" }), /json/);
+  await assert.rejects(resolveConfigPath({ kind: "weird" }), /Unknown/);
+});
+
 test("cleanup temp home", () => {
   rmSync(tmpHome, { recursive: true, force: true });
   assert.equal(true, true);

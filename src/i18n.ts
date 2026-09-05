@@ -122,7 +122,7 @@ export type Strings = {
   gateDisabled: string;
   gateFailed: string;
   externalChanged: string;
-  reloadNow: string;
+  reloadNow: string;  apply: string;
   dismiss: string;
   manageTitle: string;
   manageHint: string;
@@ -140,7 +140,29 @@ export type Strings = {
   sortLabel: string;
   sortNewest: string;
   sortOldest: string;
-  sortLargest: string;  apiKeyRequired: string;
+  sortLargest: string;
+  targetTitle: string;
+  targetGlobal: string;
+  targetGlobalDesc: string;
+  targetProject: string;
+  targetProjectDesc: string;
+  targetCustom: string;
+  targetCustomDesc: string;
+  targetPathLabel: string;
+  targetPathPlaceholder: string;
+  verifyAll: string;
+  verifying: string;
+  verifyHint: string;
+  verifySummary: (passed: number, total: number) => string;  verifyModels: (n: number) => string;
+  verifyFailed: string;
+  autofill: string;
+  autofilling: string;
+  autofilled: (id: string) => string;
+  autofillFailed: string;
+  copy: string;
+  copied: string;
+  copyFailed: string;
+  draftLoaded: string;  apiKeyRequired: string;
   keyEnvNameRequired: string;
   keyFileRequired: string;
   testOk: (count: number) => string;
@@ -286,7 +308,7 @@ const en: Strings = {
   gateDisabled: "Disabled",
   gateFailed: "Could not update availability.",
   externalChanged: "opencode.json changed outside this app.",
-  reloadNow: "Reload",
+  reloadNow: "Reload",  apply: "Apply",
   dismiss: "Dismiss",
   manageTitle: "Manage providers",
   manageHint: "Tick providers to delete several at once.",
@@ -305,6 +327,28 @@ const en: Strings = {
   sortNewest: "Newest",
   sortOldest: "Oldest",
   sortLargest: "Largest",
+  targetTitle: "Config file",
+  targetGlobal: "Global",
+  targetGlobalDesc: "~/.config/opencode/opencode.json",
+  targetProject: "Project",
+  targetProjectDesc: "opencode.json inside a project folder",
+  targetCustom: "Custom file",
+  targetCustomDesc: "Any .json / .jsonc path",
+  targetPathLabel: "Folder or file path",
+  targetPathPlaceholder: "D:\\projects\\mine  —  or  C:\\configs\\opencode.json",
+  verifyAll: "Verify all endpoints",
+  verifying: "Verifying…",
+  verifyHint: "Probes every configured /models endpoint and reports pass/fail.",
+  verifySummary: (passed, total) => `${passed} of ${total} endpoints reachable.`,  verifyModels: (n) => `${n} models`,
+  verifyFailed: "Verification run failed.",
+  autofill: "Auto-fill from models.dev",
+  autofilling: "Looking up…",
+  autofilled: (id) => `Filled from catalog entry “${id}”. Check the values before saving.`,
+  autofillFailed: "Catalog lookup failed.",
+  copy: "Copy",
+  copied: "Copied.",
+  copyFailed: "Copy failed.",
+  draftLoaded: "Restored your unsent draft (key excluded).",
   apiKeyRequired: "api_key is required.",
   keyEnvNameRequired: "Choose an env var name to store the key in.",
   keyFileRequired: "Choose a file path to store the key in.",
@@ -452,7 +496,7 @@ const ar: Strings = {
   gateDisabled: "ممنوع",
   gateFailed: "تعذّر تحديث التوفّر.",
   externalChanged: "تغيّر opencode.json خارج هذا التطبيق.",
-  reloadNow: "إعادة تحميل",
+  reloadNow: "إعادة تحميل",  apply: "تطبيق",
   dismiss: "تجاهل",
   manageTitle: "إدارة المزوّدين",
   manageHint: "علّم المزوّدين لحذف عدة مزوّدين دفعة واحدة.",
@@ -471,6 +515,28 @@ const ar: Strings = {
   sortNewest: "الأحدث",
   sortOldest: "الأقدم",
   sortLargest: "الأكبر",
+  targetTitle: "ملف الإعداد",
+  targetGlobal: "عام",
+  targetGlobalDesc: "~/.config/opencode/opencode.json",
+  targetProject: "مشروع",
+  targetProjectDesc: "opencode.json داخل مجلد مشروع",
+  targetCustom: "ملف مخصص",
+  targetCustomDesc: "أي مسار ‎.json / .jsonc",
+  targetPathLabel: "مسار المجلد أو الملف",
+  targetPathPlaceholder: "D:\\projects\\mine  —  أو  C:\\configs\\opencode.json",
+  verifyAll: "التحقق من كل النقاط",
+  verifying: "جارٍ التحقق…",
+  verifyHint: "يفحص كل نقطة ‎/models‎ مهيأة ويعرض ناجح/فاشل.",
+  verifySummary: (passed, total) => `${passed} من ${total} من النقاط يعمل.`,  verifyModels: (n) => `${n} من النماذج`,
+  verifyFailed: "فشل تشغيل التحقق.",
+  autofill: "ملء تلقائي من models.dev",
+  autofilling: "جارٍ البحث…",
+  autofilled: (id) => `مُلئ من السجل “${id}”. تحقق من القيم قبل الحفظ.`,
+  autofillFailed: "فشل البحث في الدليل.",
+  copy: "نسخ",
+  copied: "تم النسخ.",
+  copyFailed: "فشل النسخ.",
+  draftLoaded: "استُعيدت مسودتك غير المرسلة (بدون المفتاح).",
   apiKeyRequired: "مفتاح API مطلوب.",
   keyEnvNameRequired: "اختر اسم متغير بيئة لتخزين المفتاح.",
   keyFileRequired: "اختر مسار ملف لتخزين المفتاح.",

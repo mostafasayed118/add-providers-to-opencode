@@ -2,15 +2,23 @@ import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
 import {
   configMtimeMs,
-  getGlobalConfigPath,
   getProviderGates,
   listProviders,
 } from "@/lib/opencode-config";
+import { configPathFromQuery } from "@/lib/route-target";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const configPath = getGlobalConfigPath();
+export async function GET(req: Request) {
+  let configPath: string;
+  try {
+    configPath = await configPathFromQuery(req);
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { status: 400 }
+    );
+  }
   try {
     let model: string | null = null;
     let smallModel: string | null = null;

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import {
-  getGlobalConfigPath,
   readExistingConfig,
   redactSecrets,
 } from "@/lib/opencode-config";
+import { configPathFromQuery } from "@/lib/route-target";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +11,18 @@ export const dynamic = "force-dynamic";
  * Downloadable provider pack. Secrets are redacted, so the file is safe to
  * move between machines — but keys must be re-entered on import.
  */
-export async function GET() {
+export async function GET(req: Request) {
+  let configPath: string;
   try {
-    const existing = await readExistingConfig(getGlobalConfigPath());
+    configPath = await configPathFromQuery(req);
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { status: 400 }
+    );
+  }
+  try {
+    const existing = await readExistingConfig(configPath);
     const providers = ((existing.provider as Record<string, unknown> | undefined) ?? {}) as Record<
       string,
       Record<string, unknown>

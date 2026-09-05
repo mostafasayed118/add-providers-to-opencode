@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { diffJson } from "@/lib/diff";
 import {
-  getGlobalConfigPath,
   readExistingConfig,
   redactSecrets,
 } from "@/lib/opencode-config";
+import { configPathFromBody } from "@/lib/route-target";
 import type { PreviewSection } from "../preview/route";
-
 export const dynamic = "force-dynamic";
 
 const BACKUP_NAME = /^opencode\.json\.(bak\.\d+|corrupt-\d+)$/;
@@ -30,7 +29,15 @@ export async function POST(req: Request) {
     );
   }
   try {
-    const configPath = getGlobalConfigPath();
+    let configPath: string;
+    try {
+      configPath = await configPathFromBody(body);
+    } catch (err: unknown) {
+      return NextResponse.json(
+        { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+        { status: 400 }
+      );
+    }
     const { promises: fs } = await import("node:fs");
     const { default: path } = await import("node:path");
     const raw = await fs.readFile(path.join(path.dirname(configPath), file), "utf8");

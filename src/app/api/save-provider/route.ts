@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import {
-  getGlobalConfigPath,
   getStoredApiKey,
   getStoredHeaders,
   logHistory,
@@ -8,6 +7,7 @@ import {
   providerSchema,
   saveProviderConfig,
 } from "@/lib/opencode-config";
+import { configPathFromBody } from "@/lib/route-target";
 
 export const dynamic = "force-dynamic";
 
@@ -23,13 +23,21 @@ export async function POST(req: Request) {
   }
 
   const raw = { ...((body ?? {}) as Record<string, unknown>) };
+  let configPath: string;
+  try {
+    configPath = await configPathFromBody(raw);
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { status: 400 }
+    );
+  }
   const effId =
     raw.providerType === "openai-compatible"
       ? "custom"
       : typeof raw.providerId === "string" && raw.providerId.trim()
         ? raw.providerId.trim().toLowerCase()
         : "custom";
-  const configPath = getGlobalConfigPath();
   const keyGiven = typeof raw.api_key === "string" && raw.api_key.trim() !== "";
   let notice: string | null = null;
 
@@ -116,8 +124,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await saveProviderConfig(parsed.data);
-    await logHistory(getGlobalConfigPath(), "save", {
+    const result = await saveProviderConfig(parsed.data, configPath);
+    await logHistory(configPath, "save", {
       provider: effId,
       model: result.model,
     }).catch(() => {});

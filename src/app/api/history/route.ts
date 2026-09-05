@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
-import { getGlobalConfigPath, readHistory } from "@/lib/opencode-config";
+import { readHistory } from "@/lib/opencode-config";
+import { configPathFromQuery } from "@/lib/route-target";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  let configPath: string;
+  try {
+    configPath = await configPathFromQuery(req);
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { status: 400 }
+    );
+  }
   try {
     return NextResponse.json({
       ok: true,
-      entries: await readHistory(getGlobalConfigPath()),
+      entries: await readHistory(configPath),
     });
   } catch {
     return NextResponse.json(

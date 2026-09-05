@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  getGlobalConfigPath,
-  logHistory,
-  setProviderGate,
-  type GateState,
-} from "@/lib/opencode-config";
+import { logHistory, setProviderGate, type GateState } from "@/lib/opencode-config";
+import { configPathFromBody } from "@/lib/route-target";
 
 export const dynamic = "force-dynamic";
 
@@ -33,12 +29,21 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+  let configPath: string;
   try {
-    const configPath = getGlobalConfigPath();
-    await setProviderGate(configPath, providerId, state);
-    await logHistory(configPath, "save", { provider: providerId.trim().toLowerCase(), model: `gate:${state}` }).catch(
-      () => {}
+    configPath = await configPathFromBody(body);
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { status: 400 }
     );
+  }
+  try {
+    await setProviderGate(configPath, providerId, state);
+    await logHistory(configPath, "save", {
+      provider: providerId.trim().toLowerCase(),
+      model: `gate:${state}`,
+    }).catch(() => {});
     return NextResponse.json({ ok: true, state });
   } catch (err: unknown) {
     return NextResponse.json(

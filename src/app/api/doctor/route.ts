@@ -2,16 +2,25 @@ import { NextResponse } from "next/server";
 import {
   checkConfig,
   deleteProvider,
-  getGlobalConfigPath,
   logHistory,
   readExistingConfig,
 } from "@/lib/opencode-config";
+import { configPathFromBody, configPathFromQuery } from "@/lib/route-target";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  let configPath: string;
   try {
-    const existing = await readExistingConfig(getGlobalConfigPath());
+    configPath = await configPathFromQuery(req);
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { status: 400 }
+    );
+  }
+  try {
+    const existing = await readExistingConfig(configPath);
     return NextResponse.json({ ok: true, issues: checkConfig(existing) });
   } catch (err: unknown) {
     return NextResponse.json(
@@ -44,7 +53,15 @@ export async function POST(req: Request) {
     );
   }
   try {
-    const configPath = getGlobalConfigPath();
+    let configPath: string;
+    try {
+      configPath = await configPathFromBody(body);
+    } catch (err: unknown) {
+      return NextResponse.json(
+        { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+        { status: 400 }
+      );
+    }
     if (id === "dangling-model") {
       // Repoint the active model at the first available provider/model.
       const existing = await readExistingConfig(configPath);

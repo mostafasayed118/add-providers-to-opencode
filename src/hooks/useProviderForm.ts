@@ -8,6 +8,11 @@ import {
 import type { Strings } from "@/i18n";
 import { PRESETS, type Preset } from "@/lib/presets";
 
+export type ConfigTarget =
+  | { kind: "global" }
+  | { kind: "project"; dir: string }
+  | { kind: "custom"; path: string };
+
 export type ProviderType = "openai-compatible" | "custom";
 
 export type SaveSuccess = {
@@ -94,13 +99,37 @@ export function useProviderForm(t: Strings) {
   const [bulkSel, setBulkSel] = useState<string[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
+  const [target, setTargetState] = useState<ConfigTarget>({ kind: "global" });
+  const [targetPath, setTargetPath] = useState("");
+  const [verifyState, setVerifyState] = useState<"idle" | "busy">("idle");
+  const [verifyRows, setVerifyRows] = useState<
+    Array<{ id: string; ok: boolean; count?: number; error?: string }>
+  >([]);
+  const [autofilling, setAutofilling] = useState(false);
+  const [copiedTick, setCopiedTick] = useState(false);
   // Last seen config mtime. Our own writes re-baseline silently; anything
   // else raising mtime means an outside edit (hand edit, opencode itself).
   const mtimeRef = useRef<number | null>(null);
+  const targetRef = useRef<ConfigTarget>(target);
+  targetRef.current = target;
+
+  function setTarget(t: ConfigTarget) {
+    setTargetState(t);
+    targetRef.current = t;
+    mtimeRef.current = null;
+    setExternalChanged(false);
+    reset();
+    void refreshAll({ quietMtime: true });
+  }
+
+  /** Query suffix carrying the active config target for GET routes. */
+  function targetQuery(): string {
+    return `?t=${encodeURIComponent(JSON.stringify(targetRef.current))}`;
+  }
 
   async function refreshProviders(opts?: { quietMtime?: boolean }) {
     try {
-      const res = await fetch("/api/current-config");
+      const res = await fetch(`/api/current-config${targetQuery()}`);
       const d = (await res.json()) as {
         ok: boolean;
         providers?: ProviderSummary[];
@@ -146,7 +175,7 @@ export function useProviderForm(t: Strings) {
 
   async function refreshBackups() {
     try {
-      const res = await fetch("/api/backups");
+      const res = await fetch(`/api/backups${targetQuery()}`);
       const d = (await res.json()) as { ok: boolean; backups?: BackupRow[] };
       if (d.ok && Array.isArray(d.backups)) setBackups(d.backups);
     } catch {
@@ -156,7 +185,7 @@ export function useProviderForm(t: Strings) {
 
   async function refreshDoctor() {
     try {
-      const res = await fetch("/api/doctor");
+      const res = await fetch(`/api/doctor${targetQuery()}`);
       const d = (await res.json()) as { ok: boolean; issues?: DoctorIssue[] };
       if (d.ok && Array.isArray(d.issues)) setIssues(d.issues);
     } catch {
@@ -166,7 +195,7 @@ export function useProviderForm(t: Strings) {
 
   async function refreshHistory() {
     try {
-      const res = await fetch("/api/history");
+      const res = await fetch(`/api/history${targetQuery()}`);
       const d = (await res.json()) as { ok: boolean; entries?: HistoryEntry[] };
       if (d.ok && Array.isArray(d.entries)) setHistory(d.entries);
     } catch {
@@ -194,6 +223,10 @@ export function useProviderForm(t: Strings) {
 
   useEffect(() => {
     void refreshAll();
+    if (loadDraft()) {
+      setErrors({ _form: t.draftLoaded });
+      setStatus("error");
+    }
   }, []);
 
   // Watch for outside edits (hand edit, opencode itself writing the file).
@@ -217,7 +250,7 @@ export function useProviderForm(t: Strings) {
       const res = await fetch("/api/gates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providerId: selectedProvider.id, state }),
+        body: JSON.stringify({ target: targetRef.current, providerId: selectedProvider.id, state }),
       });
       const data = (await res.json()) as { ok: boolean; errors?: FieldErrors };
       if (!res.ok || !data.ok) {
@@ -243,7 +276,7 @@ export function useProviderForm(t: Strings) {
       const res = await fetch("/api/delete-many", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: bulkSel }),
+        body: JSON.stringify({ target: targetRef.current, ids: bulkSel }),
       });
       const data = (await res.json()) as {
         ok: boolean;
@@ -274,7 +307,7 @@ export function useProviderForm(t: Strings) {
 
   async function exportPack() {
     try {
-      const res = await fetch("/api/export");
+      const res = await fetch(`/api/export${targetQuery()}`);
       const data = (await res.json()) as { ok: boolean; pack?: unknown };
       if (!res.ok || !data.ok) throw new Error("export failed");
       const blob = new Blob([JSON.stringify(data.pack, null, 2)], {
@@ -309,7 +342,7 @@ export function useProviderForm(t: Strings) {
       const res = await fetch("/api/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ pack: body, target: targetRef.current }),
       });
       const data = (await res.json()) as {
         ok: boolean;
@@ -440,7 +473,7 @@ export function useProviderForm(t: Strings) {
   }
 
   function reset() {
-    setSelected("__new");
+    clearDraft();    setSelected("__new");
     setModelSel("__new_model");
     setLoadedModelId(null);
     setBaseUrl("");
@@ -535,6 +568,7 @@ export function useProviderForm(t: Strings) {
 
   function buildPayload(): Record<string, unknown> {
     return {
+      target: targetRef.current,
       base_url: baseUrl,
       api_key: apiKey.trim(),
       model_id: modelId,
@@ -621,6 +655,7 @@ export function useProviderForm(t: Strings) {
         notice: (data as { notice?: string | null }).notice ?? null,
       });
       setStatus("success");
+      clearDraft();
       await refreshAll({ quietMtime: true });
     } catch {
       setErrors({ _form: t.networkError });
@@ -678,7 +713,7 @@ export function useProviderForm(t: Strings) {
       const res = await fetch("/api/doctor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id, target: targetRef.current }),
       });
       const data = (await res.json()) as {
         ok: boolean;
@@ -708,7 +743,7 @@ export function useProviderForm(t: Strings) {
       const res = await fetch("/api/clone", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providerId: selectedProvider.id }),
+        body: JSON.stringify({ providerId: selectedProvider.id, target: targetRef.current }),
       });
       const data = (await res.json()) as {
         ok: boolean;
@@ -722,7 +757,7 @@ export function useProviderForm(t: Strings) {
       }
       await refreshAll({ quietMtime: true });
       const p = (
-        (await (await fetch("/api/current-config")).json()) as {
+        (await (await fetch(`/api/current-config${targetQuery()}`)).json()) as {
           providers?: ProviderSummary[];
         }
       ).providers?.find((x) => x.id === data.newId);
@@ -744,10 +779,191 @@ export function useProviderForm(t: Strings) {
     await restore(backups[0].file);
   }
 
+  async function verifyAll() {
+    setVerifyState("busy");
+    setVerifyRows([]);
+    try {
+      const res = await fetch("/api/verify-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: targetRef.current }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        rows?: Array<{ id: string; ok: boolean; count?: number; error?: string }>;
+        errors?: FieldErrors;
+      };
+      if (!res.ok || !data.ok) {
+        setErrors(data.errors ?? { _form: t.verifyFailed });
+        setStatus("error");
+      } else {
+        setVerifyRows(data.rows ?? []);
+      }
+    } catch {
+      setErrors({ _form: t.networkError });
+      setStatus("error");
+    } finally {
+      setVerifyState("idle");
+    }
+  }
+
+  async function autofillCapabilities() {
+    if (!modelId.trim() || autofilling) return;
+    setAutofilling(true);
+    try {
+      const res = await fetch("/api/model-info", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_id: modelId.trim() }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        match?: { id: string; context?: number; output?: number; imageInput?: boolean };
+        error?: string;
+      };
+      if (!res.ok || !data.ok || !data.match) {
+        setErrors({ _form: data.error ?? t.autofillFailed });
+        setStatus("error");
+        return;
+      }
+      if (data.match.context) setContextLimit(String(data.match.context));
+      if (data.match.output) setOutputLimit(String(data.match.output));
+      if (data.match.imageInput) setAttachment(true);
+      setErrors({ _form: t.autofilled(data.match.id) });
+      setStatus("error");
+    } catch {
+      setErrors({ _form: t.networkError });
+      setStatus("error");
+    } finally {
+      setAutofilling(false);
+    }
+  }
+
+  async function copyModelRef(ref: string) {
+    try {
+      await navigator.clipboard.writeText(ref);
+      setCopiedTick(true);
+      setTimeout(() => setCopiedTick(false), 1500);
+    } catch {
+      setErrors({ _form: t.copyFailed });
+      setStatus("error");
+    }
+  }
+
+  const DRAFT_KEY = "provider-form-draft-v1";
+
+  // Persist unsent form input (never the secret) so a refresh loses nothing.
+  // Skipped while the form is pristine-empty so we never store empty drafts.
+  const hasDraftableContent =
+    baseUrl.trim() !== "" ||
+    modelId.trim() !== "" ||
+    providerId.trim() !== "" ||
+    contextLimit.trim() !== "" ||
+    outputLimit.trim() !== "" ||
+    smallModel.trim() !== "" ||
+    headerRows.some((r) => r.name.trim() !== "");
+  useEffect(() => {
+    if (!hasDraftableContent) return;
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          DRAFT_KEY,
+          JSON.stringify({
+            baseUrl,
+            modelId,
+            providerType,
+            providerId,
+            contextLimit,
+            outputLimit,
+            toolCall,
+            reasoning,
+            attachment,
+            reasoningField,
+            keyStorage,
+            keyEnvName,
+            keyFile,
+            headerRows: headerRows.filter((r) => r.name.trim() !== ""),
+            smallModel,
+          })
+        );
+      } catch {
+        // Storage full or blocked; the form still works.
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [
+    hasDraftableContent,
+    baseUrl,
+    modelId,
+    providerType,
+    providerId,
+    contextLimit,
+    outputLimit,
+    toolCall,
+    reasoning,
+    attachment,
+    reasoningField,
+    keyStorage,
+    keyEnvName,
+    keyFile,
+    headerRows,
+    smallModel,
+  ]);
+
+  function loadDraft(): boolean {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return false;
+      const d = JSON.parse(raw) as Record<string, unknown>;
+      const str = (v: unknown) => (typeof v === "string" ? v : "");
+      if (str(d.baseUrl)) setBaseUrl(str(d.baseUrl));
+      if (str(d.modelId)) setModelId(str(d.modelId));
+      if (d.providerType === "openai-compatible" || d.providerType === "custom") {
+        setProviderType(d.providerType);
+      }
+      if (str(d.providerId)) setProviderId(str(d.providerId));
+      setContextLimit(str(d.contextLimit));
+      setOutputLimit(str(d.outputLimit));
+      if (typeof d.toolCall === "boolean") setToolCall(d.toolCall);
+      if (typeof d.reasoning === "boolean") setReasoning(d.reasoning);
+      if (typeof d.attachment === "boolean") setAttachment(d.attachment);
+      if (str(d.reasoningField)) setReasoningField(str(d.reasoningField));
+      if (d.keyStorage === "env" || d.keyStorage === "file" || d.keyStorage === "inline") {
+        setKeyStorage(d.keyStorage);
+      }
+      setKeyEnvName(str(d.keyEnvName));
+      setKeyFile(str(d.keyFile));
+      if (Array.isArray(d.headerRows)) {
+        setHeaderRows(
+          d.headerRows
+            .filter(
+              (r): r is { name: string; value: string } =>
+                !!r && typeof (r as { name?: unknown }).name === "string"
+            )
+            .map((r) => ({ name: r.name, value: typeof r.value === "string" ? r.value : "" }))
+            .slice(0, 20)
+        );
+      }
+      setSmallModel(str(d.smallModel));
+      setTouched(true);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function clearDraft() {
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      // Ignore.
+    }
+  }
+
   async function loadCurrent() {
     setErrors({});
     try {
-      const res = await fetch("/api/current-config");
+      const res = await fetch(`/api/current-config${targetQuery()}`);
       const data = (await res.json()) as {
         ok: boolean;
         exists: boolean;
@@ -774,7 +990,7 @@ export function useProviderForm(t: Strings) {
       const res = await fetch("/api/delete-provider", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providerId: selectedProvider.id }),
+        body: JSON.stringify({ providerId: selectedProvider.id, target: targetRef.current }),
       });
       const data = (await res.json()) as {
         ok: boolean;
@@ -810,7 +1026,7 @@ export function useProviderForm(t: Strings) {
       const res = await fetch("/api/restore", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file }),
+        body: JSON.stringify({ file, target: targetRef.current }),
       });
       const data = (await res.json()) as {
         ok: boolean;
@@ -875,6 +1091,12 @@ export function useProviderForm(t: Strings) {
     bulkSel,
     bulkBusy,
     importBusy,
+    target,
+    targetPath,
+    verifyState,
+    verifyRows,
+    autofilling,
+    copiedTick,
     preview,
     previewing,
     promptState,
@@ -929,6 +1151,13 @@ export function useProviderForm(t: Strings) {
     importPackFile,
     dismissExternal,
     hideExternal,
+    setTarget,
+    setTargetPath,
+    verifyAll,
+    autofillCapabilities,
+    copyModelRef,
+    loadDraft,
+    clearDraft,
     reset,
   };
 }

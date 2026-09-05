@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  deleteManyProviders,
-  getGlobalConfigPath,
-  logHistory,
-} from "@/lib/opencode-config";
+import { deleteManyProviders, logHistory } from "@/lib/opencode-config";
+import { configPathFromBody } from "@/lib/route-target";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +21,16 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+  let configPath: string;
   try {
-    const configPath = getGlobalConfigPath();
+    configPath = await configPathFromBody(body);
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { status: 400 }
+    );
+  }
+  try {
     const result = await deleteManyProviders(configPath, ids);
     await logHistory(configPath, "delete", {
       provider: ids.join(","),

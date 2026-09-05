@@ -35,8 +35,23 @@ export default function Home() {
   const [providerQuery, setProviderQuery] = useState("");
   const [bulkConfirm, setBulkConfirm] = useState(false);
   const [backupSort, setBackupSort] = useState<"newest" | "oldest" | "largest">("newest");
+  const [targetKind, setTargetKind] = useState<"global" | "project" | "custom">("global");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const t = strings[locale];
   const form = useProviderForm(t);
+
+  function toggleCard(id: string) {
+    setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  // Warn before losing an unsent, dirty form.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (form.touched && form.status !== "success") e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [form.touched, form.status]);
 
   const filteredProviders = form.providers.filter(
     (p) =>
@@ -213,6 +228,73 @@ export default function Home() {
         )}
 
         <form onSubmit={form.submit} noValidate className="space-y-5">
+          <SectionLabel n="00">{t.targetTitle}</SectionLabel>
+          <div>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t.targetTitle}>
+              {(
+                [
+                  { v: "global", label: t.targetGlobal, hint: t.targetGlobalDesc },
+                  { v: "project", label: t.targetProject, hint: t.targetProjectDesc },
+                  { v: "custom", label: t.targetCustom, hint: t.targetCustomDesc },
+                ] as const
+              ).map((o) => (
+                <button
+                  key={o.v}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.target.kind === o.v}
+                  title={o.hint}
+                  onClick={() => {
+                    setTargetKind(o.v);
+                    if (o.v === "global") form.setTarget({ kind: "global" });
+                  }}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition duration-200 active:scale-95 ${
+                    form.target.kind === o.v
+                      ? "border-blue-600 bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
+                      : "border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            {targetKind !== "global" && (
+              <div className="mt-2 flex gap-2">
+                <Field label={t.targetPathLabel} htmlFor="target_path">
+                  <input
+                    id="target_path"
+                    placeholder={t.targetPathPlaceholder}
+                    value={form.targetPath}
+                    onChange={(e) => form.setTargetPath(e.target.value)}
+                    autoComplete="off"
+                    dir="ltr"
+                    className={inputClass(false)}
+                  />
+                </Field>
+                <button
+                  type="button"
+                  onClick={() =>
+                    form.setTarget(
+                      targetKind === "project"
+                        ? { kind: "project", dir: form.targetPath.trim() }
+                        : { kind: "custom", path: form.targetPath.trim() }
+                    )
+                  }
+                  className={`${secondaryBtn} mt-6 h-fit shrink-0`}
+                >
+                  {t.apply}
+                </button>
+              </div>
+            )}
+            {form.target.kind !== "global" && (
+              <p className="mt-1 font-mono text-xs text-slate-500 dark:text-slate-400" dir="ltr">
+                {form.target.kind === "project"
+                  ? `${form.target.dir}/opencode.json`
+                  : form.target.path}
+              </p>
+            )}
+          </div>
+
           <SectionLabel n="01">{t.provider}</SectionLabel>
           <div>
             <input
@@ -375,6 +457,50 @@ export default function Home() {
                   </button>
                 </div>
               )}
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={form.verifyAll}
+                  disabled={form.verifyState === "busy"}
+                  className={secondaryBtn}
+                >
+                  {form.verifyState === "busy" ? t.verifying : t.verifyAll}
+                </button>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t.verifyHint}</p>
+                {form.verifyRows.length > 0 && (
+                  <p role="status" className="mt-1 text-sm font-medium">
+                    {t.verifySummary(
+                      form.verifyRows.filter((r) => r.ok).length,
+                      form.verifyRows.length
+                    )}
+                  </p>
+                )}
+                {form.verifyRows.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {form.verifyRows.map((r) => (
+                      <li
+                        key={r.id}
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 font-mono text-xs ${
+                          r.ok
+                            ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950"
+                            : "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950"
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`inline-block h-2 w-2 shrink-0 rounded-full ${
+                            r.ok ? "bg-green-500" : "bg-red-500"
+                          }`}
+                        />
+                        <span className="flex-1 break-all" dir="ltr">{r.id}</span>
+                        <span className="shrink-0 text-slate-500 dark:text-slate-400">
+                          {r.ok ? t.verifyModels(r.count ?? 0) : (r.error ?? t.testFailed)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           )}
 
@@ -573,6 +699,14 @@ export default function Home() {
             >
               {form.promptState === "testing" ? t.promptTesting : t.testPrompt}
             </button>
+            <button
+              type="button"
+              onClick={form.autofillCapabilities}
+              disabled={form.autofilling}
+              className={secondaryBtn}
+            >
+              {form.autofilling ? t.autofilling : t.autofill}
+            </button>
           </div>
           {form.testMsg && (
             <p
@@ -713,6 +847,15 @@ export default function Home() {
             >
               <p className="font-medium">{t.saved}</p>
               <p className="mt-1 break-all font-mono text-[13px]">{t.savedModel(form.result.model)}</p>
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => form.copyModelRef(form.result!.model)}
+                  className="rounded-lg border border-green-400 px-3 py-1 text-xs font-semibold transition duration-200 hover:bg-green-100 active:scale-95 dark:border-green-700 dark:hover:bg-green-900"
+                >
+                  {form.copiedTick ? t.copied : `${t.copy} ${form.result.model}`}
+                </button>
+              </div>
               <p className="break-all font-mono text-[13px]">{t.savedFile(form.result.path)}</p>
               {form.result.backup && (
                 <p className="break-all font-mono text-[13px]">{t.savedBackup(form.result.backup)}</p>
@@ -884,8 +1027,19 @@ export default function Home() {
               {form.restoring ? t.restoring : t.undoLast}
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => toggleCard("backups")}
+            aria-expanded={!collapsed.backups}
+            aria-label={t.backups}
+            className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+          >
+            {collapsed.backups ? "+" : "–"}
+          </button>
         </div>
-        <div className="mt-2 flex items-center gap-2">
+        {!collapsed.backups && (
+          <>
+            <div className="mt-2 flex items-center gap-2">
           <label htmlFor="backup_sort" className="text-xs font-medium text-slate-500 dark:text-slate-400">
             {t.sortLabel}
           </label>
@@ -941,6 +1095,8 @@ export default function Home() {
           />
           </>
         )}
+          </>
+        )}
       </div>
 
       <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
@@ -949,6 +1105,7 @@ export default function Home() {
             <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">05</span>
             {t.doctor}
           </h2>
+          <div className="flex shrink-0 gap-2">
           <button
             type="button"
             onClick={form.loadDoctor}
@@ -957,9 +1114,21 @@ export default function Home() {
           >
             {form.doctorState === "idle" ? t.doctorCheck : form.doctorState === "checking" ? t.doctorChecking : t.fixing}
           </button>
+          <button
+            type="button"
+            onClick={() => toggleCard("doctor")}
+            aria-expanded={!collapsed.doctor}
+            aria-label={t.doctor}
+            className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+          >
+            {collapsed.doctor ? "+" : "–"}
+          </button>
+          </div>
         </div>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.doctorHint}</p>
-        {form.issues.length === 0 ? (
+        {!collapsed.doctor && (
+          <>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.doctorHint}</p>
+            {form.issues.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t.noIssues}</p>
         ) : (
           <>
@@ -999,14 +1168,29 @@ export default function Home() {
           />
           </>
         )}
+          </>
+        )}
       </div>
 
       <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
-        <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
-          <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">06</span>
-          {t.history}
-        </h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.historyHint}</p>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
+            <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">06</span>
+            {t.history}
+          </h2>
+          <button
+            type="button"
+            onClick={() => toggleCard("history")}
+            aria-expanded={!collapsed.history}
+            aria-label={t.history}
+            className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+          >
+            {collapsed.history ? "+" : "–"}
+          </button>
+        </div>
+        {!collapsed.history && (
+          <>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.historyHint}</p>
         {form.history.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t.noHistory}</p>
         ) : (
@@ -1041,39 +1225,56 @@ export default function Home() {
           />
           </>
         )}
+          </>
+        )}
       </div>
 
       <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
-        <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
-          <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">07</span>
-          {t.exportBtn} / {t.importBtn}
-        </h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.importHint}</p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
+            <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">07</span>
+            {t.exportBtn} / {t.importBtn}
+          </h2>
           <button
             type="button"
-            onClick={form.exportPack}
-            className={secondaryBtn}
+            onClick={() => toggleCard("portability")}
+            aria-expanded={!collapsed.portability}
+            aria-label={`${t.exportBtn} / ${t.importBtn}`}
+            className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
           >
-            {t.exportBtn}
+            {collapsed.portability ? "+" : "–"}
           </button>
-          <label
-            className={`${secondaryBtn} cursor-pointer`}
-          >
-            {form.importBusy ? t.importing : t.importBtn}
-            <input
-              type="file"
-              accept="application/json,.json"
-              className="hidden"
-              disabled={form.importBusy}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                e.target.value = "";
-                if (f) void form.importPackFile(f);
-              }}
-            />
-          </label>
         </div>
+        {!collapsed.portability && (
+          <>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.importHint}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={form.exportPack}
+                className={secondaryBtn}
+              >
+                {t.exportBtn}
+              </button>
+              <label
+                className={`${secondaryBtn} cursor-pointer`}
+              >
+                {form.importBusy ? t.importing : t.importBtn}
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  disabled={form.importBusy}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (f) void form.importPackFile(f);
+                  }}
+                />
+              </label>
+            </div>
+          </>
+        )}
       </div>
 
       <p className="mt-4 text-center text-xs text-slate-500 dark:text-slate-400">{t.footer}</p>

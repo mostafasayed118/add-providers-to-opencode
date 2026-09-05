@@ -14,6 +14,9 @@ provider delete with active-model fallback, provider search, one-click presets,
 **diff preview with secrets redacted**, backup list + restore + one-click undo,
 config doctor with auto-fixes, change history, enable/disable provider gates,
 bulk delete, provider search, one-click presets, export/import packs,
+multi-file support (global, project-local, custom path), models.dev
+capability auto-fill, draft autosave, copy-model-ref, verify-all endpoints,
+collapsible cards, keyboard shortcuts,
 timestamped backups + corrupt-file recovery, concurrent-save locking,
 English/Arabic UI, auto-update from GitHub Releases (desktop build).
 
@@ -21,8 +24,8 @@ English/Arabic UI, auto-update from GitHub Releases (desktop build).
 
 ```bash
 npm install
-npm test      # 42 unit + integration tests (isolated temp home, real config untouched)
-npm run test:e2e  # browser specs against a dev server with isolated home
+npm test      # 52 unit + integration tests (isolated temp home, real config untouched)
+npm run test:e2e  # browser specs (14) against a dev server with isolated home
 npm run dev
 # open http://localhost:3000
 ```

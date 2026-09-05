@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import {
-  getGlobalConfigPath,
   mergeProviderEntry,
   providerSchema,
   readExistingConfig,
   redactSecrets,
 } from "@/lib/opencode-config";
+import { configPathFromBody } from "@/lib/route-target";
 import { diffJson, type DiffLine } from "@/lib/diff";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,15 @@ export async function POST(req: Request) {
     );
   }
   const raw = { ...((body ?? {}) as Record<string, unknown>) };
-  const configPath = getGlobalConfigPath();
+  let configPath: string;
+  try {
+    configPath = await configPathFromBody(raw);
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { status: 400 }
+    );
+  }
 
   // Same blank-key rule as save: reuse the stored key when editing.
   if (typeof raw.api_key !== "string" || raw.api_key.trim() === "") {

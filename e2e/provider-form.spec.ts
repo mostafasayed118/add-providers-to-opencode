@@ -195,8 +195,11 @@ test("gate toggle, keyboard submit and bulk delete", async ({ page, request }) =
 
 test("export redacts secrets; keyless import is rejected", async ({ page, request }) => {
   await page.goto("/");
+  const portability = page.locator("div.rounded-2xl", {
+    has: page.locator("h2", { hasText: "Export pack" }),
+  });
   const dl = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Export pack" }).click();
+  await portability.getByRole("button", { name: "Export pack", exact: true }).click();
   const download = await dl;
   const filePath = await download.path();
   expect(filePath).toBeTruthy();
@@ -219,4 +222,76 @@ test("export redacts secrets; keyless import is rejected", async ({ page, reques
     },
   });
   expect(good.ok()).toBe(true);
+});
+
+test("custom target roundtrips through its own file", async ({ page, request }) => {
+  const { default: path } = await import("node:path");
+  const customPath = path.join(process.cwd(), ".e2e-home", "custom-e2e.json");
+  const target = { kind: "custom", path: customPath };
+  const save = await request.post("/api/save-provider", {
+    data: {
+      target,
+      base_url: "https://api.example.com/v1",
+      api_key: "sk-e2e-test-key-123",
+      model_id: "m1",
+      providerType: "custom",
+      providerId: "customfile",
+    },
+  });
+  expect(save.ok()).toBe(true);
+  const cur = await request.get(`/api/current-config?t=${encodeURIComponent(JSON.stringify(target))}`);
+  const body = await cur.json();
+  expect(body.model).toBe("customfile/m1");
+  const global = await (await request.get("/api/current-config")).json();
+  expect(global.model).not.toBe("customfile/m1");
+  await page.goto("/");
+});
+
+test("draft survives reload without the secret", async ({ page }) => {
+  await page.goto("/");
+  await page.fill("#base_url", "https://draft.example.com/v1");
+  await page.fill("#api_key", "sk-draft-secret-123");
+  await page.fill("#model_id", "draft-model");
+  await page.waitForTimeout(800);
+  await page.reload();
+  await expect(page.locator("#base_url")).toHaveValue("https://draft.example.com/v1");
+  await expect(page.locator("#model_id")).toHaveValue("draft-model");
+  await expect(page.locator("#api_key")).toHaveValue("");
+});
+
+test("verify-all reports unreachable endpoints", async ({ page, request }) => {
+  for (const pid of ["dead-1", "dead-2"]) {
+    await request.post("/api/save-provider", {
+      data: {
+        base_url: "http://127.0.0.1:9/v1",
+        api_key: "sk-e2e-test-key-123",
+        model_id: "m",
+        providerType: "custom",
+        providerId: pid,
+      },
+    });
+  }
+  await page.goto("/");
+  await page.getByRole("button", { name: "Verify all endpoints" }).click();
+  await expect(page.getByText(/\d+ of \d+ endpoints reachable/)).toBeVisible({ timeout: 60000 });
+  const deadRow = page.locator("li", { hasText: "dead-1" });
+  await expect(deadRow.getByText(/Could not reach|HTTP/)).toBeVisible();
+});
+
+test("copy button copies the model ref and cards collapse", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/");
+  await page.fill("#base_url", "https://api.example.com/v1");
+  await page.fill("#api_key", "sk-e2e-test-key-123");
+  await page.fill("#model_id", "copy-model");
+  await page.getByRole("button", { name: "Submit & Apply to Opencode" }).click();
+  await page.getByRole("button", { name: "Confirm & Apply" }).click();
+  await expect(page.getByText("Saved. Opencode will use it automatically.")).toBeVisible();
+  await page.getByRole("button", { name: /Copy custom\/copy-model/ }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("custom/copy-model");
+  const historyCard = page.locator("div.rounded-2xl", {
+    has: page.locator("h2", { hasText: "Change history" }),
+  });
+  await historyCard.getByRole("button", { name: "Change history" }).click();
+  await expect(historyCard.getByText("Every save")).not.toBeVisible();
 });
