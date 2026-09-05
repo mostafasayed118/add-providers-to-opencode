@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "Desktop-ready tool to configure opencode global provider (base_url, api_key, model_id)",
+  "author": "Mustafa Sayed",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
