@@ -27,8 +27,21 @@ function formatBytes(n: number): string {
 export default function Home() {
   const [locale, setLocale] = useState<Locale>("en");
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [backupPage, setBackupPage] = useState(0);
   const t = strings[locale];
   const form = useProviderForm(t);
+
+  const BACKUP_PAGE_SIZE = 5;
+  const backupTotalPages = Math.max(1, Math.ceil(form.backups.length / BACKUP_PAGE_SIZE));
+  const safeBackupPage = Math.min(backupPage, backupTotalPages - 1);
+  const visibleBackups = form.backups.slice(
+    safeBackupPage * BACKUP_PAGE_SIZE,
+    safeBackupPage * BACKUP_PAGE_SIZE + BACKUP_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setBackupPage(0);
+  }, [form.backups.length]);
 
   useEffect(() => {
     const stored = localStorage.getItem("theme");
@@ -541,8 +554,9 @@ export default function Home() {
         {form.backups.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t.noBackups}</p>
         ) : (
-          <ul className="mt-3 space-y-2">
-            {form.backups.slice(0, 10).map((b) => (
+          <>
+            <ul className="mt-3 space-y-2">
+              {visibleBackups.map((b) => (
               <li
                 key={b.file}
                 className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
@@ -563,8 +577,40 @@ export default function Home() {
                   {form.restoring === b.file ? t.restoring : t.restore}
                 </button>
               </li>
-            ))}
-          </ul>
+              ))}
+            </ul>
+            {backupTotalPages > 1 && (
+              <nav
+                aria-label={t.backups}
+                className="mt-3 flex items-center justify-between gap-2"
+              >
+                <button
+                  type="button"
+                  disabled={safeBackupPage === 0}
+                  onClick={() => setBackupPage((p) => Math.max(0, p - 1))}
+                  className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"
+                >
+                  {t.backupsPrev}
+                </button>
+                <span
+                  role="status"
+                  className="text-sm tabular-nums text-slate-500 dark:text-slate-400"
+                >
+                  {t.backupsPage(safeBackupPage + 1, backupTotalPages)}
+                </span>
+                <button
+                  type="button"
+                  disabled={safeBackupPage >= backupTotalPages - 1}
+                  onClick={() =>
+                    setBackupPage((p) => Math.min(backupTotalPages - 1, p + 1))
+                  }
+                  className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"
+                >
+                  {t.backupsNext}
+                </button>
+              </nav>
+            )}
+          </>
         )}
       </div>
 

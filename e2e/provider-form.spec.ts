@@ -38,8 +38,7 @@ test("arabic toggle flips layout direction", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "إعداد مزوّد Opencode" })).toBeVisible();
 });
 
-test("theme toggle switches dark class and persists", async ({ page }) => {
-  await page.goto("/");
+test("theme toggle switches dark class and persists", async ({ page }) => {  await page.goto("/");
   const toggle = page.getByRole("button", { name: "Toggle dark mode" });
   await toggle.click();
   await expect(page.locator("html.dark")).toBeAttached();
@@ -55,4 +54,23 @@ test("theme toggle switches dark class and persists", async ({ page }) => {
   );
   expect(bg).toBe("rgb(15, 23, 42)");
   await page.screenshot({ path: "shots/dark.png" });
+});
+
+test("backups list paginates", async ({ page }) => {
+  await page.goto("/");
+  await page.fill("#base_url", "https://api.example.com/v1");
+  await page.fill("#api_key", "sk-e2e-test-key-123");
+  await page.fill("#model_id", "pager-model");
+  // Seven saves guarantee at least six backups (first write has nothing to back up).
+  for (let i = 0; i < 7; i++) {
+    await page.getByRole("button", { name: "Submit & Apply to Opencode" }).click();
+    await expect(page.getByText("Saved. Opencode will use it automatically.")).toBeVisible();
+  }
+  await expect(page.getByText(/Page 1 of \d+/)).toBeVisible();
+  const pager = page.getByRole("navigation", { name: "Backups" });
+  await pager.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByText(/Page 2 of \d+/)).toBeVisible();
+  await pager.getByRole("button", { name: "Previous", exact: true }).click();
+  await expect(page.getByText(/Page 1 of \d+/)).toBeVisible();
+  await page.locator("div.rounded-2xl", { has: page.locator("h2", { hasText: "Backups" }) }).screenshot({ path: "shots/backups-pager.png" });
 });

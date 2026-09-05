@@ -79,7 +79,9 @@ export type Strings = {
   restore: string;
   restoring: string;
   corruptBadge: string;
-  apiKeyRequired: string;
+  backupsPrev: string;
+  backupsNext: string;
+  backupsPage: (page: number, total: number) => string;  apiKeyRequired: string;
   keyEnvNameRequired: string;
   keyFileRequired: string;
   testOk: (count: number) => string;
@@ -182,6 +184,9 @@ const en: Strings = {
   restore: "Restore",
   restoring: "Restoring…",
   corruptBadge: "corrupt copy",
+  backupsPrev: "Previous",
+  backupsNext: "Next",
+  backupsPage: (page, total) => `Page ${page} of ${total}`,
   apiKeyRequired: "api_key is required.",
   keyEnvNameRequired: "Choose an env var name to store the key in.",
   keyFileRequired: "Choose a file path to store the key in.",
@@ -286,6 +291,9 @@ const ar: Strings = {
   restore: "استعادة",
   restoring: "جارٍ الاستعادة…",
   corruptBadge: "نسخة تالفة",
+  backupsPrev: "السابق",
+  backupsNext: "التالي",
+  backupsPage: (page, total) => `صفحة ${page} من ${total}`,
   apiKeyRequired: "مفتاح API مطلوب.",
   keyEnvNameRequired: "اختر اسم متغير بيئة لتخزين المفتاح.",
   keyFileRequired: "اختر مسار ملف لتخزين المفتاح.",
