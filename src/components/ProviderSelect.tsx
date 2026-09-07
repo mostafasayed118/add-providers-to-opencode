@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ProviderSummary } from "@/lib/provider-schema";
 import type { Strings } from "@/i18n";
 import { selectClass } from "./form-fields";
@@ -8,7 +9,7 @@ export function formatLimit(n: number): string {
   return String(n);
 }
 
-export function ProviderSelect({
+export const ProviderSelect = memo(function ProviderSelect({
   t,
   providers,
   selected,
@@ -45,4 +46,4 @@ export function ProviderSelect({
       </select>
     </div>
   );
-}
+});

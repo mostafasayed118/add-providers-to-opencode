@@ -1,6 +1,8 @@
+import { memo } from "react";
+
 export const PAGE_SIZE = 5;
 
-export function Pager({
+export const Pager = memo(function Pager({
   label,
   page,
   totalPages,
@@ -26,7 +28,7 @@ export function Pager({
         type="button"
         disabled={page === 0}
         onClick={onPrev}
-        className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"
+        className="min-h-[44px] rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"
       >
         {prevLabel}
       </button>
@@ -37,10 +39,10 @@ export function Pager({
         type="button"
         disabled={page >= totalPages - 1}
         onClick={() => onNext()}
-        className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"
+        className="min-h-[44px] rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium transition duration-200 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"
       >
         {nextLabel}
       </button>
     </nav>
   );
-}
+});

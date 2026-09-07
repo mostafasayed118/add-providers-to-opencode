@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import {
   providerSchema,
   toFieldErrors,
@@ -22,7 +22,7 @@ export type SaveSuccess = {
   notice: string | null;
 };
 
-export type FormStatus = "idle" | "saving" | "success" | "error";
+export type FormStatus = "idle" | "saving" | "success" | "error" | "info";
 
 export type HeaderRow = { name: string; value: string };
 
@@ -112,6 +112,7 @@ export function useProviderForm(t: Strings) {
   const mtimeRef = useRef<number | null>(null);
   const targetRef = useRef<ConfigTarget>(target);
   targetRef.current = target;
+  const targetSwitchingRef = useRef(false);
 
   function setTarget(t: ConfigTarget) {
     setTargetState(t);
@@ -119,7 +120,10 @@ export function useProviderForm(t: Strings) {
     mtimeRef.current = null;
     setExternalChanged(false);
     reset();
-    void refreshAll({ quietMtime: true });
+    targetSwitchingRef.current = true;
+    void refreshAll({ quietMtime: true }).finally(() => {
+      targetSwitchingRef.current = false;
+    });
   }
 
   /** Query suffix carrying the active config target for GET routes. */
@@ -127,7 +131,9 @@ export function useProviderForm(t: Strings) {
     return `?t=${encodeURIComponent(JSON.stringify(targetRef.current))}`;
   }
 
-  async function refreshProviders(opts?: { quietMtime?: boolean }) {
+  async function refreshProviders(
+    opts?: { quietMtime?: boolean }
+  ): Promise<ProviderSummary[] | undefined> {
     try {
       const res = await fetch(`/api/current-config${targetQuery()}`);
       const d = (await res.json()) as {
@@ -153,10 +159,12 @@ export function useProviderForm(t: Strings) {
           }
           mtimeRef.current = d.mtimeMs;
         }
+        return Array.isArray(d.providers) ? d.providers : undefined;
       }
     } catch {
       // Dropdown stays empty; form still works for new providers.
     }
+    return undefined;
   }
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -203,13 +211,16 @@ export function useProviderForm(t: Strings) {
     }
   }
 
-  async function refreshAll(opts?: { quietMtime?: boolean }) {
-    await Promise.all([
+  async function refreshAll(
+    opts?: { quietMtime?: boolean }
+  ): Promise<ProviderSummary[] | undefined> {
+    const [freshProviders] = await Promise.all([
       refreshProviders(opts),
       refreshBackups(),
       refreshDoctor(),
       refreshHistory(),
     ]);
+    return freshProviders;
   }
 
   async function dismissExternal() {
@@ -223,18 +234,32 @@ export function useProviderForm(t: Strings) {
 
   useEffect(() => {
     void refreshAll();
-    if (loadDraft()) {
-      setErrors({ _form: t.draftLoaded });
-      setStatus("error");
-    }
+    // Batch the ~15 loadDraft setX calls + follow-up into one render.
+    startTransition(() => {
+      if (loadDraft()) {
+        setErrors({ _form: t.draftLoaded });
+        setStatus("info");
+      }
+    });
   }, []);
 
   // Watch for outside edits (hand edit, opencode itself writing the file).
+  // Paused when tab hidden; skipped while a target switch refresh is in flight.
   useEffect(() => {
-    const timer = setInterval(() => {
+    const tick = () => {
+      if (document.hidden) return;
+      if (targetSwitchingRef.current) return;
       void refreshProviders();
-    }, 5000);
-    return () => clearInterval(timer);
+    };
+    const timer = setInterval(tick, 5000);
+    const onVis = () => {
+      if (!document.hidden && !targetSwitchingRef.current) void refreshProviders();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, []);
 
   function gateOfSelected(): "auto" | "enabled" | "disabled" {
@@ -296,7 +321,7 @@ export function useProviderForm(t: Strings) {
       setErrors({
         _form: t.bulkDeleted(data.deleted ?? bulkSel.length, data.newModel ?? t.none),
       });
-      setStatus("error");
+      setStatus("info");
     } catch {
       setErrors({ _form: t.networkError });
       setStatus("error");
@@ -357,7 +382,7 @@ export function useProviderForm(t: Strings) {
       await refreshAll({ quietMtime: true });
       reset();
       setErrors({ _form: t.imported((data.imported ?? []).join(", ")) });
-      setStatus("error");
+      setStatus("info");
     } catch {
       setErrors({ _form: t.networkError });
       setStatus("error");
@@ -630,7 +655,7 @@ export function useProviderForm(t: Strings) {
     }
   }
 
-  async function confirmSubmit() {
+  async function confirmSubmit(): Promise<string | null> {
     setPreview(null);
     setStatus("saving");
     setErrors({});
@@ -646,7 +671,7 @@ export function useProviderForm(t: Strings) {
       if (!res.ok || !data.ok) {
         setErrors((data as { errors?: FieldErrors }).errors ?? { _form: t.saveFailed });
         setStatus("error");
-        return;
+        return null;
       }
       setResult({
         path: data.path,
@@ -657,10 +682,32 @@ export function useProviderForm(t: Strings) {
       setStatus("success");
       clearDraft();
       await refreshAll({ quietMtime: true });
+      return data.model;
     } catch {
       setErrors({ _form: t.networkError });
       setStatus("error");
+      return null;
     }
+  }
+
+  /**
+   * Simple-mode "save & add another": keep provider, credentials and
+   * capabilities; clear just the model so the next ID starts fresh.
+   * NOTE: result + "success" status are intentionally kept so the saved
+   * card (file/backup/copy-ref button) stays visible; the _form line
+   * below it prompts for the next model.
+   */
+  function resetModelForNext(savedModel: string) {
+    setModelSel("__new_model");
+    setLoadedModelId(null);
+    setModelId("");
+    setDiscovered([]);
+    setTesting("idle");
+    setTestMsg(null);
+    setPromptState("idle");
+    setPromptMsg(null);
+    setErrors({ _form: t.savedAddAnother(savedModel) });
+    setTouched(false);
   }
 
   function applyPreset(p: Preset) {
@@ -725,7 +772,7 @@ export function useProviderForm(t: Strings) {
         setStatus("error");
       } else {
         setErrors({ _form: t.fixed(data.fixed ?? "") });
-        setStatus("error");
+        setStatus("info");
         await refreshAll({ quietMtime: true });
       }
     } catch {
@@ -755,16 +802,13 @@ export function useProviderForm(t: Strings) {
         setStatus("error");
         return;
       }
-      await refreshAll({ quietMtime: true });
-      const p = (
-        (await (await fetch(`/api/current-config${targetQuery()}`)).json()) as {
-          providers?: ProviderSummary[];
-        }
-      ).providers?.find((x) => x.id === data.newId);
+      // Reuse refreshAll result instead of a second GET to /api/current-config.
+      const freshProviders = await refreshAll({ quietMtime: true });
+      const p = freshProviders?.find((x) => x.id === data.newId);
       if (p) loadProvider(p);
       else {
         setErrors({ _form: t.cloned(data.newId) });
-        setStatus("error");
+        setStatus("info");
       }
     } catch {
       setErrors({ _form: t.networkError });
@@ -830,7 +874,7 @@ export function useProviderForm(t: Strings) {
       if (data.match.output) setOutputLimit(String(data.match.output));
       if (data.match.imageInput) setAttachment(true);
       setErrors({ _form: t.autofilled(data.match.id) });
-      setStatus("error");
+      setStatus("info");
     } catch {
       setErrors({ _form: t.networkError });
       setStatus("error");
@@ -976,7 +1020,7 @@ export function useProviderForm(t: Strings) {
           ? { _form: t.currentModel(data.model ?? t.none, data.path) }
           : { _form: t.noConfig(data.path) }
       );
-      setStatus("error");
+      setStatus("info");
     } catch {
       setErrors({ _form: t.loadFailed });
       setStatus("error");
@@ -1011,7 +1055,7 @@ export function useProviderForm(t: Strings) {
           ? t.deletedActive(data.newModel ?? t.none)
           : t.deleted,
       });
-      setStatus("error");
+      setStatus("info");
       setDeleting("idle");
     } catch {
       setErrors({ _form: t.networkError });
@@ -1040,7 +1084,7 @@ export function useProviderForm(t: Strings) {
         await refreshAll({ quietMtime: true });
         reset();
         setErrors({ _form: t.restored(data.model ?? t.none) });
-        setStatus("error");
+        setStatus("info");
       }
     } catch {
       setErrors({ _form: t.networkError });
@@ -1132,6 +1176,7 @@ export function useProviderForm(t: Strings) {
     applyPreset,
     submit,
     confirmSubmit,
+    resetModelForNext,
     closePreview: () => setPreview(null),
     loadCurrent,
     testConnection,

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchCatalog, matchCatalogModel } from "@/lib/catalog";
+import { MODEL_ID_RE, slice100 } from "@/lib/request-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -21,12 +22,19 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+  const mid = model_id.trim();
+  if (mid.length > 128 || !MODEL_ID_RE.test(mid)) {
+    return NextResponse.json(
+      { ok: false, error: "model_id contains invalid characters." },
+      { status: 400 }
+    );
+  }
   try {
     const catalog = await fetchCatalog();
     const match = matchCatalogModel(catalog, model_id);
     if (!match) {
       return NextResponse.json(
-        { ok: false, error: `No catalog entry matches "${model_id.trim()}". Fill the fields by hand.` },
+        { ok: false, error: `No catalog entry matches "${slice100(model_id.trim())}". Fill the fields by hand.` },
         { status: 200 }
       );
     }

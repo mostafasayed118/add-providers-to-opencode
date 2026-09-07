@@ -4,6 +4,10 @@ export type Strings = {
   dir: "ltr" | "rtl";
   toggleLang: string;
   toggleTheme: string;
+  userGuide: string;
+  guideTitle: string;
+  guideSubtitle: string;
+  backToSetup: string;
   title: string;
   subtitle: string;
   footer: string;
@@ -94,6 +98,12 @@ export type Strings = {
   confirmApply: string;
   backToEdit: string;
   previewing: string;
+  keyboardHint: string;
+  modeTitle: string;
+  modeSimple: string;
+  modeAdvanced: string;
+  modeHint: string;
+  savedAddAnother: (model: string) => string;
   testPrompt: string;
   promptTesting: string;
   promptHint: string;
@@ -184,6 +194,10 @@ const en: Strings = {
   dir: "ltr",
   toggleLang: "عربي",
   toggleTheme: "Toggle dark mode",
+  userGuide: "User guide",
+  guideTitle: "User guide",
+  guideSubtitle: "How to add, test, and manage providers.",
+  backToSetup: "← Back to setup",
   title: "Opencode Provider Setup",
   subtitle:
     "Enter your endpoint, key, and model. On submit we validate and write the global opencode config automatically.",
@@ -242,7 +256,7 @@ const en: Strings = {
     stored
       ? `Currently: ${stored}. Leave blank to keep it.`
       : "Cheap model for titles etc, as provider/model. Blank = don't set.",
-  submit: "Submit & Apply to Opencode",
+  submit: "Review config",
   saving: "Saving…",
   loadCurrent: "Load current",
   reset: "Reset",
@@ -280,6 +294,12 @@ const en: Strings = {
   confirmApply: "Confirm & Apply",
   backToEdit: "Back to edit",
   previewing: "Building preview…",
+  keyboardHint: "Tip: Ctrl+Enter to review, Escape to dismiss.",
+  modeTitle: "Form mode",
+  modeSimple: "Simple",
+  modeAdvanced: "Advanced",
+  modeHint: "Simple shows the essentials. Advanced shows every option.",
+  savedAddAnother: (model) => `Saved ${model} — type the next model ID to add another.`,
   testPrompt: "Send test prompt",
   promptTesting: "Asking…",
   promptHint: "Sends one tiny prompt to prove the model answers. Costs a few tokens.",
@@ -373,6 +393,10 @@ const ar: Strings = {
   dir: "rtl",
   toggleLang: "EN",
   toggleTheme: "تبديل الوضع الداكن",
+  userGuide: "دليل المستخدم",
+  guideTitle: "دليل المستخدم",
+  guideSubtitle: "كيفية إضافة المزوّدين واختبارهم وإدارتهم.",
+  backToSetup: "عودة إلى الإعداد ←",
   title: "إعداد مزوّد Opencode",
   subtitle: "أدخل العنوان والمفتاح والنموذج. عند الإرسال نتحقق ونكتب إعداد opencode العام تلقائيًا.",
   footer: "يكتب ‎~/.config/opencode/opencode.json‎ العام ويضبط النموذج.",
@@ -430,7 +454,7 @@ const ar: Strings = {
     stored
       ? `الحالي: ${stored}. اتركه فارغًا للاحتفاظ به.`
       : "نموذج رخيص للعناوين إلخ بصيغة provider/model. فارغ = لا تضبط.",
-  submit: "إرسال وتطبيق على Opencode",
+  submit: "مراجعة الإعداد",
   saving: "جارٍ الحفظ…",
   loadCurrent: "عرض الحالي",
   reset: "تصفير",
@@ -468,6 +492,12 @@ const ar: Strings = {
   confirmApply: "تأكيد وتطبيق",
   backToEdit: "عودة للتحرير",
   previewing: "جارٍ بناء المعاينة…",
+  keyboardHint: "تلميح: Ctrl+Enter للمراجعة، وEscape للإغلاق.",
+  modeTitle: "وضع الإدخال",
+  modeSimple: "بسيط",
+  modeAdvanced: "متقدم",
+  modeHint: "البسيط يعرض الأساسيات. المتقدم يعرض كل الخيارات.",
+  savedAddAnother: (model) => `تم حفظ ${model} — اكتب معرّف النموذج التالي لإضافته.`,
   testPrompt: "إرسال رسالة اختبار",
   promptTesting: "جارٍ السؤال…",
   promptHint: "يرسل رسالة صغيرة لإثبات رد النموذج. يكلف رموزًا قليلة.",

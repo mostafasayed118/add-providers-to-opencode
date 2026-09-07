@@ -6,6 +6,7 @@ import {
   readExistingConfig,
 } from "@/lib/opencode-config";
 import { configPathFromBody, configPathFromQuery } from "@/lib/route-target";
+import { asProviderId, isSameOrigin, safeTargetError, slice100 } from "@/lib/request-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -15,19 +16,19 @@ export async function GET(req: Request) {
     configPath = await configPathFromQuery(req);
   } catch (err: unknown) {
     return NextResponse.json(
-      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { ok: false, errors: { _form: safeTargetError(err) } },
       { status: 400 }
     );
   }
   try {
     const existing = await readExistingConfig(configPath);
     return NextResponse.json({ ok: true, issues: checkConfig(existing) });
-  } catch (err: unknown) {
+  } catch {
     return NextResponse.json(
       {
         ok: false,
         errors: {
-          _form: err instanceof Error ? err.message : "Could not check config.",
+          _form: "Could not check config.",
         },
       },
       { status: 500 }
@@ -36,6 +37,12 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!isSameOrigin(req)) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: "Forbidden." } },
+      { status: 403 }
+    );
+  }
   let body: unknown;
   try {
     body = await req.json();
@@ -52,13 +59,29 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+  const shortId = slice100(id);
+  if (id !== "dangling-model" && !id.startsWith("empty:")) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: "This issue has no automatic fix." } },
+      { status: 400 }
+    );
+  }
+  if (id.startsWith("empty:")) {
+    const rawPid = id.slice("empty:".length);
+    if (!asProviderId(rawPid)) {
+      return NextResponse.json(
+        { ok: false, errors: { _form: `Invalid provider id "${shortId}".` } },
+        { status: 400 }
+      );
+    }
+  }
   try {
     let configPath: string;
     try {
       configPath = await configPathFromBody(body);
     } catch (err: unknown) {
       return NextResponse.json(
-        { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+        { ok: false, errors: { _form: safeTargetError(err) } },
         { status: 400 }
       );
     }
@@ -97,20 +120,22 @@ export async function POST(req: Request) {
       );
     }
     if (id.startsWith("empty:")) {
-      const pid = id.slice("empty:".length);
+      const pid = id.slice("empty:".length).trim().toLowerCase();
       const res = await deleteProvider(configPath, pid);
       await logHistory(configPath, "delete", { provider: pid, model: res.newModel });
-      return NextResponse.json({ ok: true, fixed: `removed ${pid}` });
+      return NextResponse.json({ ok: true, fixed: `removed ${slice100(pid)}` });
     }
     return NextResponse.json(
       { ok: false, errors: { _form: "This issue has no automatic fix." } },
       { status: 400 }
     );
   } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Fix failed.";
+    const safe = msg.includes("/") || msg.includes("\\") ? "Fix failed." : msg;
     return NextResponse.json(
       {
         ok: false,
-        errors: { _form: err instanceof Error ? err.message : "Fix failed." },
+        errors: { _form: safe },
       },
       { status: 500 }
     );

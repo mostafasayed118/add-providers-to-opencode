@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAllowedUrl } from "@/lib/provider-schema";
+import { MAX_API_KEY_LEN, MAX_URL_LEN, MODEL_ID_RE } from "@/lib/request-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +31,20 @@ export async function POST(req: Request) {
   if (typeof api_key !== "string" || !api_key.trim()) {
     return NextResponse.json({ ok: false, error: "Enter an API key first." }, { status: 400 });
   }
+  if (api_key.length > MAX_API_KEY_LEN) {
+    return NextResponse.json({ ok: false, error: "api_key is too long." }, { status: 400 });
+  }
   if (typeof model_id !== "string" || !model_id.trim()) {
     return NextResponse.json({ ok: false, error: "Enter a model_id first." }, { status: 400 });
   }
+  const mid = model_id.trim();
+  if (mid.length > 128 || !MODEL_ID_RE.test(mid)) {
+    return NextResponse.json({ ok: false, error: "model_id contains invalid characters." }, { status: 400 });
+  }
   const base = base_url.trim().replace(/\/+$/, "");
+  if (base.length > MAX_URL_LEN) {
+    return NextResponse.json({ ok: false, error: "base_url is too long." }, { status: 400 });
+  }
   try {
     new URL(base);
   } catch {
@@ -67,7 +78,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           ok: false,
-          error: `HTTP ${res.status}. ${text.slice(0, 200) || "Check the URL, key, and model id."}`,
+          error: `HTTP ${res.status}. ${text.slice(0, 100) || "Check the URL, key, and model id."}`,
         },
         { status: 200 }
       );
@@ -77,7 +88,7 @@ export async function POST(req: Request) {
     };
     const reply =
       data.choices?.[0]?.message?.content != null
-        ? String(data.choices[0].message.content).slice(0, 500)
+        ? String(data.choices[0].message.content).slice(0, 100)
         : "(empty reply)";
     return NextResponse.json({ ok: true, reply });
   } catch (err: unknown) {

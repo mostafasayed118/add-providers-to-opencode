@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import {
+  isAllowedUrl,
   providerSchema,
   type ProviderInput,
   type ProviderSummary,
@@ -30,7 +31,7 @@ export async function resolveConfigPath(t: unknown): Promise<string> {
     }
     const dir = target.dir.trim();
     const stat = await fs.stat(dir).catch(() => null);
-    if (!stat?.isDirectory()) throw new Error(`Project folder not found: ${dir}`);
+    if (!stat?.isDirectory()) throw new Error("Project folder not found.");
     return path.join(dir, "opencode.json");
   }
   if (target.kind === "custom") {
@@ -40,7 +41,7 @@ export async function resolveConfigPath(t: unknown): Promise<string> {
     const p = target.path.trim();
     const parent = path.dirname(p);
     const stat = await fs.stat(parent).catch(() => null);
-    if (!stat?.isDirectory()) throw new Error(`Folder not found: ${parent}`);
+    if (!stat?.isDirectory()) throw new Error("Folder not found.");
     if (!/\.jsonc?$/.test(p)) throw new Error("Config file must end in .json or .jsonc.");
     return p;
   }
@@ -101,8 +102,10 @@ export async function withConfigLock<T>(
   }
 }
 
-export async function listProviders(configPath: string): Promise<ProviderSummary[]> {
-  const existing = await readExistingConfig(configPath);
+/** Pure mapping over an already-parsed config. Use to avoid a second fs.readFile. */
+export function listProvidersFromExisting(
+  existing: Record<string, unknown>
+): ProviderSummary[] {
   const providers = (existing.provider as Record<string, unknown> | undefined) ?? {};
   return Object.entries(providers).map(([id, p]) => {
     const prov = (p ?? {}) as Record<string, unknown>;
@@ -156,17 +159,30 @@ export async function listProviders(configPath: string): Promise<ProviderSummary
   });
 }
 
-export async function getStoredApiKey(
-  configPath: string,
-  providerId: string
-): Promise<string | null> {
+export async function listProviders(configPath: string): Promise<ProviderSummary[]> {
   const existing = await readExistingConfig(configPath);
+  return listProvidersFromExisting(existing);
+}
+
+/** Pure lookup over an already-parsed config. Use to avoid a second fs.readFile. */
+export function getStoredApiKeyFromExisting(
+  existing: Record<string, unknown>,
+  providerId: string
+): string | null {
   const providers = (existing.provider as Record<string, unknown> | undefined) ?? {};
   const prov = (providers[providerId] ?? {}) as Record<string, unknown>;
   const options = (prov.options ?? {}) as Record<string, unknown>;
   return typeof options.apiKey === "string" && options.apiKey.length > 0
     ? options.apiKey
     : null;
+}
+
+export async function getStoredApiKey(
+  configPath: string,
+  providerId: string
+): Promise<string | null> {
+  const existing = await readExistingConfig(configPath);
+  return getStoredApiKeyFromExisting(existing, providerId);
 }
 
 export type KeyRef = { kind: "env" | "file"; name: string } | null;
@@ -318,32 +334,99 @@ export function validatePack(pack: unknown): { ok: true; pack: ImportedPack } | 
   }
   const providers: ImportedPack["providers"] = {};
   for (const [pid, p] of Object.entries(rawProviders as Record<string, unknown>)) {
+    const shortPid = pid.slice(0, 100);
     if (!/^[a-z0-9-]{1,32}$/.test(pid)) {
-      return { ok: false, error: `Bad provider id "${pid}".` };
+      return { ok: false, error: `Bad provider id "${shortPid}".` };
     }
     if (p === null || typeof p !== "object" || Array.isArray(p)) {
-      return { ok: false, error: `Provider "${pid}" must be an object.` };
+      return { ok: false, error: `Provider "${shortPid}" must be an object.` };
     }
     const prov = p as Record<string, unknown>;
     const options = prov.options;
     if (options === null || typeof options !== "object" || Array.isArray(options)) {
-      return { ok: false, error: `Provider "${pid}" needs options with baseURL and apiKey.` };
+      return { ok: false, error: `Provider "${shortPid}" needs options with baseURL and apiKey.` };
     }
     const opts = options as Record<string, unknown>;
     if (typeof opts.baseURL !== "string" || !opts.baseURL) {
-      return { ok: false, error: `Provider "${pid}" needs options.baseURL.` };
+      return { ok: false, error: `Provider "${shortPid}" needs options.baseURL.` };
+    }
+    if (opts.baseURL.length > 2048 || !isAllowedUrl(opts.baseURL)) {
+      return { ok: false, error: `Provider "${shortPid}" has an invalid baseURL.` };
     }
     if (typeof opts.apiKey !== "string" || !opts.apiKey) {
-      return { ok: false, error: `Provider "${pid}" has no key. Add apiKey (or an {env:}/{file:} reference) before importing.` };
+      return { ok: false, error: `Provider "${shortPid}" has no key. Add apiKey (or an {env:}/{file:} reference) before importing.` };
+    }
+    if (opts.apiKey.length > 8192) {
+      return { ok: false, error: `Provider "${shortPid}" key is too long.` };
     }
     if (/^\u2022+$/.test(opts.apiKey)) {
-      return { ok: false, error: `Provider "${pid}" carries a redacted placeholder, not a real key. Re-enter the key before importing.` };
+      return { ok: false, error: `Provider "${shortPid}" carries a redacted placeholder, not a real key. Re-enter the key before importing.` };
     }
     const models = prov.models;
     if (models === null || typeof models !== "object" || Array.isArray(models) || Object.keys(models).length === 0) {
-      return { ok: false, error: `Provider "${pid}" needs at least one model.` };
+      return { ok: false, error: `Provider "${shortPid}" needs at least one model.` };
     }
-    providers[pid] = { npm: "@ai-sdk/openai-compatible", ...prov };
+    // Allowlist known provider fields; drop unknown extra keys verbatim.
+    const cleanOptions: Record<string, unknown> = {
+      baseURL: opts.baseURL,
+      apiKey: opts.apiKey,
+    };
+    if (opts.headers !== null && typeof opts.headers === "object" && !Array.isArray(opts.headers)) {
+      const h: Record<string, string> = {};
+      for (const [k, v] of Object.entries(opts.headers as Record<string, unknown>)) {
+        if (typeof v !== "string") continue;
+        if (k.length === 0 || k.length > 128) continue;
+        h[k.slice(0, 128)] = v.slice(0, 4096);
+        if (Object.keys(h).length >= 20) break;
+      }
+      if (Object.keys(h).length > 0) cleanOptions.headers = h;
+    }
+    const cleanModels: Record<string, unknown> = {};
+    for (const [mid, m] of Object.entries(models as Record<string, unknown>)) {
+      if (typeof mid !== "string" || !mid || mid.length > 128) continue;
+      if (m === null || typeof m !== "object" || Array.isArray(m)) continue;
+      const mm = m as Record<string, unknown>;
+      const cleanM: Record<string, unknown> = {};
+      if (typeof mm.name === "string") cleanM.name = mm.name.slice(0, 256);
+      if (typeof mm.tool_call === "boolean") cleanM.tool_call = mm.tool_call;
+      if (typeof mm.reasoning === "boolean") cleanM.reasoning = mm.reasoning;
+      if (typeof mm.attachment === "boolean") cleanM.attachment = mm.attachment;
+      if (typeof mm.interleaved === "string") cleanM.interleaved = mm.interleaved.slice(0, 64);
+      else if (mm.interleaved !== null && typeof mm.interleaved === "object" && !Array.isArray(mm.interleaved)) {
+        const f = (mm.interleaved as Record<string, unknown>).field;
+        if (typeof f === "string") cleanM.interleaved = { field: f.slice(0, 64) };
+      }
+      if (mm.limit !== null && typeof mm.limit === "object" && !Array.isArray(mm.limit)) {
+        const lim = mm.limit as Record<string, unknown>;
+        const cleanLim: Record<string, unknown> = {};
+        if (typeof lim.context === "number" && Number.isInteger(lim.context) && lim.context > 0 && lim.context <= 10_000_000) cleanLim.context = lim.context;
+        if (typeof lim.output === "number" && Number.isInteger(lim.output) && lim.output > 0 && lim.output <= 10_000_000) cleanLim.output = lim.output;
+        if (Object.keys(cleanLim).length > 0) cleanM.limit = cleanLim;
+      }
+      if (mm.modalities !== null && typeof mm.modalities === "object" && !Array.isArray(mm.modalities)) {
+        const mod = mm.modalities as Record<string, unknown>;
+        const cleanMod: Record<string, unknown> = {};
+        if (Array.isArray(mod.input)) {
+          const inp = mod.input.filter((x): x is string => typeof x === "string").map((x) => x.slice(0, 32)).slice(0, 10);
+          if (inp.length > 0) cleanMod.input = inp;
+        }
+        if (Array.isArray(mod.output)) {
+          const outp = mod.output.filter((x): x is string => typeof x === "string").map((x) => x.slice(0, 32)).slice(0, 10);
+          if (outp.length > 0) cleanMod.output = outp;
+        }
+        if (Object.keys(cleanMod).length > 0) cleanM.modalities = cleanMod;
+      }
+      cleanModels[mid.slice(0, 128)] = cleanM;
+    }
+    if (Object.keys(cleanModels).length === 0) {
+      return { ok: false, error: `Provider "${shortPid}" needs at least one model.` };
+    }
+    providers[pid] = {
+      npm: typeof prov.npm === "string" ? prov.npm.slice(0, 256) : "@ai-sdk/openai-compatible",
+      ...(typeof prov.name === "string" ? { name: prov.name.slice(0, 256) } : {}),
+      options: cleanOptions,
+      models: cleanModels,
+    };
   }
   if (Object.keys(providers).length === 0) {
     return { ok: false, error: "Pack contains no providers." };
@@ -431,22 +514,29 @@ export async function listBackups(configPath: string): Promise<BackupInfo[]> {
   } catch {
     return [];
   }
-  const out: BackupInfo[] = [];
-  for (const name of names) {
-    const m = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(bak\\.\\d+|corrupt-\\d+)$`).exec(name);
-    if (!m) continue;
-    try {
-      const stat = await fs.stat(path.join(dir, name));
-      out.push({
-        file: name,
-        kind: m[1].startsWith("bak.") ? "backup" : "corrupt",
-        bytes: stat.size,
-        mtimeMs: stat.mtimeMs,
-      });
-    } catch {
-      // Vanished mid-listing; skip.
-    }
-  }
+  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^${escaped}\\.(bak\\.\\d+|corrupt-\\d+)$`);
+  const infos = names.filter((name) => re.test(name));
+  const out = (
+    await Promise.all(
+      infos.map(async (name): Promise<BackupInfo | null> => {
+        const m = re.exec(name);
+        if (!m) return null;
+        try {
+          const stat = await fs.stat(path.join(dir, name));
+          return {
+            file: name,
+            kind: m[1].startsWith("bak.") ? "backup" : "corrupt",
+            bytes: stat.size,
+            mtimeMs: stat.mtimeMs,
+          };
+        } catch {
+          // Vanished mid-listing; skip.
+          return null;
+        }
+      })
+    )
+  ).filter((x): x is BackupInfo => x !== null);
   return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 

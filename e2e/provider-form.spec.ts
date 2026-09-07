@@ -5,7 +5,7 @@ test("new provider: fill, validate, submit, then edit it", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Opencode Provider Setup" })).toBeVisible();
 
   // Empty submit flags all three required fields.
-  await page.getByRole("button", { name: "Submit & Apply to Opencode" }).click();
+  await page.getByRole("button", { name: "Review config" }).click();
   await expect(page.locator("#base_url-error")).toBeVisible();
   await expect(page.locator("#api_key-error")).toBeVisible();
   await expect(page.locator("#model_id-error")).toBeVisible();
@@ -19,7 +19,7 @@ test("new provider: fill, validate, submit, then edit it", async ({ page }) => {
   await page.fill("#model_id", "e2e-model");
   await page.fill("#context_limit", "12345");
   await page.getByLabel("Attachments (images)").check();
-  await page.getByRole("button", { name: "Submit & Apply to Opencode" }).click();
+  await page.getByRole("button", { name: "Review config" }).click();
   await expect(page.getByRole("dialog", { name: "Review changes" })).toBeVisible();
   await page.getByRole("button", { name: "Confirm & Apply" }).click();
   await expect(page.getByText("Saved. Opencode will use it automatically.")).toBeVisible();
@@ -63,8 +63,10 @@ test("backups list paginates", async ({ page }) => {  await page.goto("/");
   await page.fill("#api_key", "sk-e2e-test-key-123");
   await page.fill("#model_id", "pager-model");
   // Seven saves guarantee at least six backups (first write has nothing to back up).
+  // Simple mode clears the model field after each save ("add another"), so refill it.
   for (let i = 0; i < 7; i++) {
-    await page.getByRole("button", { name: "Submit & Apply to Opencode" }).click();
+    await page.fill("#model_id", "pager-model");
+    await page.getByRole("button", { name: "Review config" }).click();
     await expect(page.getByRole("dialog", { name: "Review changes" })).toBeVisible();
     await page.getByRole("button", { name: "Confirm & Apply" }).click();
     await expect(page.getByText("Saved. Opencode will use it automatically.")).toBeVisible();
@@ -94,7 +96,7 @@ test("preview shows the diff and back-to-edit cancels", async ({ page }) => {
   await page.fill("#base_url", "https://preview.example.com/v1");
   await page.fill("#api_key", "sk-e2e-test-key-123");
   await page.fill("#model_id", "preview-model");
-  await page.getByRole("button", { name: "Submit & Apply to Opencode" }).click();
+  await page.getByRole("button", { name: "Review config" }).click();
   const dialog = page.getByRole("dialog", { name: "Review changes" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("preview-model").first()).toBeVisible();
@@ -114,6 +116,11 @@ test("provider search filters the dropdown", async ({ page }) => {
   await expect(page.locator('#existing_provider option[value="e2eprov"]')).toBeAttached();
   await page.getByPlaceholder("Search providers…").fill("zzz-no-such-provider");
   await expect(page.locator("#existing_provider option")).toHaveCount(1);
+  // The loaded provider stays displayed even when the query excludes it.
+  await page.getByPlaceholder("Search providers…").fill("");
+  await page.selectOption("#existing_provider", "e2eprov");
+  await page.getByPlaceholder("Search providers…").fill("zzz-no-such-provider");
+  await expect(page.locator("#existing_provider")).toHaveValue("e2eprov");
 });
 
 test("doctor runs and history lists saves", async ({ page }) => {  await page.goto("/");
@@ -284,7 +291,7 @@ test("copy button copies the model ref and cards collapse", async ({ page, conte
   await page.fill("#base_url", "https://api.example.com/v1");
   await page.fill("#api_key", "sk-e2e-test-key-123");
   await page.fill("#model_id", "copy-model");
-  await page.getByRole("button", { name: "Submit & Apply to Opencode" }).click();
+  await page.getByRole("button", { name: "Review config" }).click();
   await page.getByRole("button", { name: "Confirm & Apply" }).click();
   await expect(page.getByText("Saved. Opencode will use it automatically.")).toBeVisible();
   await page.getByRole("button", { name: /Copy custom\/copy-model/ }).click();

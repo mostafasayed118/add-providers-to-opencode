@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { logHistory, restoreBackup } from "@/lib/opencode-config";
 import { configPathFromBody } from "@/lib/route-target";
+import { BACKUP_NAME_RE, isSameOrigin, safeTargetError } from "@/lib/request-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  if (!isSameOrigin(req)) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: "Forbidden." } },
+      { status: 403 }
+    );
+  }
   let body: unknown;
   try {
     body = await req.json();
@@ -15,9 +22,9 @@ export async function POST(req: Request) {
     );
   }
   const file = (body as { file?: unknown })?.file;
-  if (typeof file !== "string" || !file) {
+  if (typeof file !== "string" || !BACKUP_NAME_RE.test(file)) {
     return NextResponse.json(
-      { ok: false, errors: { _form: "file is required." } },
+      { ok: false, errors: { _form: "Unrecognized backup file." } },
       { status: 400 }
     );
   }
@@ -27,7 +34,7 @@ export async function POST(req: Request) {
       configPath = await configPathFromBody(body);
     } catch (err: unknown) {
       return NextResponse.json(
-        { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+        { ok: false, errors: { _form: safeTargetError(err) } },
         { status: 400 }
       );
     }
@@ -37,11 +44,13 @@ export async function POST(req: Request) {
     );
     return NextResponse.json({ ok: true, ...result });
   } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Restore failed.";
+    const safe = msg.includes("/") || msg.includes("\\") ? "Restore failed." : msg;
     return NextResponse.json(
       {
         ok: false,
         errors: {
-          _form: err instanceof Error ? err.message : "Restore failed.",
+          _form: safe,
         },
       },
       { status: 500 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  getStoredApiKeyFromExisting,
   mergeProviderEntry,
   providerSchema,
   readExistingConfig,
@@ -7,6 +8,7 @@ import {
 } from "@/lib/opencode-config";
 import { configPathFromBody } from "@/lib/route-target";
 import { diffJson, type DiffLine } from "@/lib/diff";
+import { safeTargetError } from "@/lib/request-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -32,22 +34,28 @@ export async function POST(req: Request) {
     configPath = await configPathFromBody(raw);
   } catch (err: unknown) {
     return NextResponse.json(
-      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { ok: false, errors: { _form: safeTargetError(err) } },
       { status: 400 }
     );
   }
 
   // Same blank-key rule as save: reuse the stored key when editing.
+  // Single read reused below for the diff to avoid double fs.readFile+parse.
+  let cachedExisting: Record<string, unknown> | null = null;
   if (typeof raw.api_key !== "string" || raw.api_key.trim() === "") {
-    const { getStoredApiKey } = await import("@/lib/opencode-config");
     const effId =
       raw.providerType === "openai-compatible"
         ? "custom"
         : typeof raw.providerId === "string" && raw.providerId.trim()
           ? raw.providerId.trim().toLowerCase()
           : "custom";
-    const stored = await getStoredApiKey(configPath, effId).catch(() => null);
-    if (stored) raw.api_key = stored;
+    try {
+      cachedExisting = await readExistingConfig(configPath);
+      const stored = getStoredApiKeyFromExisting(cachedExisting, effId);
+      if (stored) raw.api_key = stored;
+    } catch {
+      cachedExisting = null;
+    }
   }
 
   const parsed = providerSchema.safeParse(raw);
@@ -72,7 +80,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const existing = await readExistingConfig(configPath);
+    const existing = cachedExisting ?? (await readExistingConfig(configPath));
     const merged = mergeProviderEntry(existing, {
       ...parsed.data,
       api_key: parsed.data.api_key,
@@ -106,11 +114,13 @@ export async function POST(req: Request) {
     const changed = sections.some((s) => s.lines.some((l) => l.type !== "same"));
     return NextResponse.json({ ok: true, model: merged.model, changed, sections });
   } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Could not build preview.";
+    const safe = msg.includes("/") || msg.includes("\\") ? "Could not build preview." : msg;
     return NextResponse.json(
       {
         ok: false,
         errors: {
-          _form: err instanceof Error ? err.message : "Could not build preview.",
+          _form: safe,
         },
       },
       { status: 500 }

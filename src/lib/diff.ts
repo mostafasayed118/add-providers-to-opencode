@@ -3,10 +3,21 @@ export type DiffLine = {
   text: string;
 };
 
+const MAX_DIFF_LINES = 2000;
+
 /** Line diff via longest-common-subsequence. Inputs are small JSON docs. */
 export function diffLines(oldText: string, newText: string): DiffLine[] {
-  const a = oldText.split("\n");
-  const b = newText.split("\n");
+  let a = oldText.split("\n");
+  let b = newText.split("\n");
+  let truncated = false;
+  if (a.length > MAX_DIFF_LINES) {
+    a = a.slice(0, MAX_DIFF_LINES);
+    truncated = true;
+  }
+  if (b.length > MAX_DIFF_LINES) {
+    b = b.slice(0, MAX_DIFF_LINES);
+    truncated = true;
+  }
   const m = a.length;
   const n = b.length;
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
@@ -36,6 +47,7 @@ export function diffLines(oldText: string, newText: string): DiffLine[] {
   }
   while (i < m) out.push({ type: "del", text: a[i++] });
   while (j < n) out.push({ type: "add", text: b[j++] });
+  if (truncated) out.push({ type: "same", text: "… truncated (large file, diff capped at 2000 lines)" });
   return out;
 }
 

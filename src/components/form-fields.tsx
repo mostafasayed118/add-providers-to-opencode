@@ -42,7 +42,7 @@ export function Field({
 /** Numbered eyebrow caption that structures the long form into steps. */
 export function SectionLabel({ n, children }: { n: string; children: ReactNode }) {
   return (
-    <p className="flex items-baseline gap-2 text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
+    <p className="flex items-baseline gap-2 text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
       <span className="font-mono tabular-nums text-blue-600 dark:text-blue-400">{n}</span>
       <span>{children}</span>
       <span aria-hidden="true" className="h-px flex-1 self-center bg-slate-200 dark:bg-slate-700" />

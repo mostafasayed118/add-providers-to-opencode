@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import {
   configMtimeMs,
   getProviderGates,
-  listProviders,
+  listProvidersFromExisting,
 } from "@/lib/opencode-config";
 import { configPathFromQuery } from "@/lib/route-target";
 
@@ -24,10 +24,11 @@ export async function GET(req: Request) {
     let smallModel: string | null = null;
     let exists = true;
     let gates = { enabled: [] as string[], disabled: [] as string[] };
+    let parsed: Record<string, unknown> | null = null;
     try {
       // Raw read on purpose: a GET must never repair or back up the file.
       const raw = await fs.readFile(configPath, "utf8");
-      const parsed = (raw.trim() ? JSON.parse(raw) : {}) as Record<string, unknown>;
+      parsed = (raw.trim() ? JSON.parse(raw) : {}) as Record<string, unknown>;
       if (typeof parsed.model === "string") model = parsed.model;
       if (typeof parsed.small_model === "string") smallModel = parsed.small_model;
       gates = getProviderGates(parsed);
@@ -41,7 +42,8 @@ export async function GET(req: Request) {
         );
       }
     }
-    const providers = exists ? await listProviders(configPath) : [];
+    // Reuse the single parsed read instead of a second fs.readFile in listProviders.
+    const providers = exists && parsed ? listProvidersFromExisting(parsed) : [];
     return NextResponse.json({
       ok: true,
       exists,

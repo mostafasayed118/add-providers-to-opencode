@@ -8,10 +8,17 @@ import {
   saveProviderConfig,
 } from "@/lib/opencode-config";
 import { configPathFromBody } from "@/lib/route-target";
+import { isSameOrigin, keyFileError, safeTargetError } from "@/lib/request-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  if (!isSameOrigin(req)) {
+    return NextResponse.json(
+      { ok: false, errors: { _form: "Forbidden." } },
+      { status: 403 }
+    );
+  }
   let body: unknown;
   try {
     body = await req.json();
@@ -28,7 +35,7 @@ export async function POST(req: Request) {
     configPath = await configPathFromBody(raw);
   } catch (err: unknown) {
     return NextResponse.json(
-      { ok: false, errors: { _form: err instanceof Error ? err.message : "Bad target." } },
+      { ok: false, errors: { _form: safeTargetError(err) } },
       { status: 400 }
     );
   }
@@ -58,7 +65,7 @@ export async function POST(req: Request) {
         merged.push({ name, value: stored[name] });
       } else {
         return NextResponse.json(
-          { ok: false, errors: { _form: `Header "${name}" needs a value (or pick a stored one).` } },
+          { ok: false, errors: { _form: `Header "${name.slice(0, 100)}" needs a value (or pick a stored one).` } },
           { status: 400 }
         );
       }
@@ -83,6 +90,26 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+  } else if (storage === "file") {
+    // Validate keyFile path before any filesystem side effect.
+    const kfErr = keyFileError(raw.keyFile);
+    if (kfErr) {
+      return NextResponse.json(
+        { ok: false, errors: { _form: kfErr } },
+        { status: 400 }
+      );
+    }
+    // Validate the rest of the payload before writing the key file so a
+    // bad base_url/model_id never leaves a secret file behind.
+    const early = providerSchema.safeParse(raw);
+    if (!early.success) {
+      const errors: Record<string, string> = {};
+      for (const issue of early.error.issues) {
+        const key = issue.path[0]?.toString() ?? "_form";
+        if (!errors[key]) errors[key] = issue.message;
+      }
+      return NextResponse.json({ ok: false, errors }, { status: 400 });
+    }
   } else if (storage === "env") {
     const name = typeof raw.keyEnvName === "string" ? raw.keyEnvName.trim() : "";
     if (!name) {
@@ -91,26 +118,35 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    raw.api_key = `{env:${name}}`;
-    notice = `Key stored as reference only. Set ${name} in your environment before running opencode, otherwise requests will fail with an empty key.`;
-  } else if (storage === "file") {
-    const file = typeof raw.keyFile === "string" ? raw.keyFile.trim() : "";
-    if (!file) {
-      return NextResponse.json(
-        { ok: false, errors: { _form: "Choose a file path to store the key in." } },
-        { status: 400 }
-      );
+    // Validate before transforming to a reference.
+    const early = providerSchema.safeParse(raw);
+    if (!early.success) {
+      const errors: Record<string, string> = {};
+      for (const issue of early.error.issues) {
+        const key = issue.path[0]?.toString() ?? "_form";
+        if (!errors[key]) errors[key] = issue.message;
+      }
+      return NextResponse.json({ ok: false, errors }, { status: 400 });
     }
+    raw.api_key = `{env:${name}}`;
+    notice = `Key stored as reference only. Set ${name.slice(0, 100)} in your environment before running opencode, otherwise requests will fail with an empty key.`;
+  }
+  if (keyGiven && storage === "file") {
+    const file = (raw.keyFile as string).trim();
     try {
       await writeKeyFile(file, (raw.api_key as string).trim());
     } catch {
       return NextResponse.json(
-        { ok: false, errors: { _form: `Could not write the key file at ${file}.` } },
+        { ok: false, errors: { _form: "Could not write the key file." } },
         { status: 500 }
       );
     }
     raw.api_key = `{file:${file}}`;
-    notice = `Key written to ${file} (owner-only permissions). The config holds a reference, not the secret.`;
+    notice = `Key written to file (owner-only permissions). The config holds a reference, not the secret.`;
+  } else if (keyGiven && storage === "env" && typeof raw.api_key === "string" && !raw.api_key.startsWith("{env:")) {
+    const name = typeof raw.keyEnvName === "string" ? raw.keyEnvName.trim() : "";
+    raw.api_key = `{env:${name}}`;
+    notice = `Key stored as reference only. Set ${name.slice(0, 100)} in your environment before running opencode, otherwise requests will fail with an empty key.`;
   }
 
   const parsed = providerSchema.safeParse(raw);
@@ -145,7 +181,7 @@ export async function POST(req: Request) {
       );
     }
     return NextResponse.json(
-      { ok: false, errors: { _form: e?.message ?? "Failed to save configuration." } },
+      { ok: false, errors: { _form: "Failed to save configuration." } },
       { status: 500 }
     );
   }

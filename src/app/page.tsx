@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CapabilityFieldset } from "@/components/CapabilityFieldset";
 import { Field, SectionLabel, inputClass, secondaryBtn, selectClass } from "@/components/form-fields";
 import { Pager, PAGE_SIZE } from "@/components/Pager";
@@ -26,6 +26,24 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function handleRadioGroupKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+  const items = Array.from(
+    e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+  );
+  const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+  if (idx === -1) return;
+  let next = -1;
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % items.length;
+  else if (e.key === "ArrowLeft" || e.key === "ArrowUp")
+    next = (idx - 1 + items.length) % items.length;
+  else if (e.key === "Home") next = 0;
+  else if (e.key === "End") next = items.length - 1;
+  else return;
+  e.preventDefault();
+  items[next].focus();
+  items[next].click();
+}
+
 export default function Home() {
   const [locale, setLocale] = useState<Locale>("en");
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -36,9 +54,23 @@ export default function Home() {
   const [bulkConfirm, setBulkConfirm] = useState(false);
   const [backupSort, setBackupSort] = useState<"newest" | "oldest" | "largest">("newest");
   const [targetKind, setTargetKind] = useState<"global" | "project" | "custom">("global");
+  const [mode, setMode] = useState<"simple" | "advanced">("simple");
+  const simple = mode === "simple";
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const t = strings[locale];
   const form = useProviderForm(t);
+  const previewConfirmRef = useRef<HTMLButtonElement>(null);
+  const previewTriggerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (form.preview) {
+      previewTriggerRef.current = document.activeElement as HTMLElement | null;
+      previewConfirmRef.current?.focus();
+    } else if (previewTriggerRef.current) {
+      previewTriggerRef.current.focus?.();
+      previewTriggerRef.current = null;
+    }
+  }, [form.preview]);
 
   function toggleCard(id: string) {
     setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -53,37 +85,64 @@ export default function Home() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [form.touched, form.status]);
 
-  const filteredProviders = form.providers.filter(
-    (p) =>
-      !providerQuery.trim() ||
-      p.id.toLowerCase().includes(providerQuery.trim().toLowerCase()) ||
-      p.models.some((m) => m.id.toLowerCase().includes(providerQuery.trim().toLowerCase()))
-  );
+  const filteredProviders = useMemo(() => {
+    const q = providerQuery.trim().toLowerCase();
+    const matches = !q
+      ? form.providers
+      : form.providers.filter(
+          (p) =>
+            p.id.toLowerCase().includes(q) ||
+            p.models.some((m) => m.id.toLowerCase().includes(q))
+        );
+    // Pin the loaded provider: a native select falls back to the first
+    // option when the selected one is filtered out, which would display
+    // "+ New provider…" while the form still holds the loaded provider.
+    if (
+      form.selected !== "__new" &&
+      !matches.some((p) => p.id === form.selected)
+    ) {
+      const loaded = form.providers.find((p) => p.id === form.selected);
+      if (loaded) return [loaded, ...matches];
+    }
+    return matches;
+  }, [form.providers, form.selected, providerQuery]);
 
-  const sortedBackups = [...form.backups].sort((a, b) =>
-    backupSort === "oldest"
-      ? a.mtimeMs - b.mtimeMs
-      : backupSort === "largest"
-        ? b.bytes - a.bytes
-        : b.mtimeMs - a.mtimeMs
+  const sortedBackups = useMemo(
+    () =>
+      [...form.backups].sort((a, b) =>
+        backupSort === "oldest"
+          ? a.mtimeMs - b.mtimeMs
+          : backupSort === "largest"
+            ? b.bytes - a.bytes
+            : b.mtimeMs - a.mtimeMs
+      ),
+    [form.backups, backupSort]
   );
   const backupTotalPages = Math.max(1, Math.ceil(sortedBackups.length / PAGE_SIZE));
   const safeBackupPage = Math.min(backupPage, backupTotalPages - 1);
-  const visibleBackups = sortedBackups.slice(
-    safeBackupPage * PAGE_SIZE,
-    safeBackupPage * PAGE_SIZE + PAGE_SIZE
+  const visibleBackups = useMemo(
+    () => sortedBackups.slice(safeBackupPage * PAGE_SIZE, safeBackupPage * PAGE_SIZE + PAGE_SIZE),
+    [sortedBackups, safeBackupPage]
   );
   const doctorTotalPages = Math.max(1, Math.ceil(form.issues.length / PAGE_SIZE));
   const safeDoctorPage = Math.min(doctorPage, doctorTotalPages - 1);
-  const visibleIssues = form.issues.slice(
-    safeDoctorPage * PAGE_SIZE,
-    safeDoctorPage * PAGE_SIZE + PAGE_SIZE
+  const visibleIssues = useMemo(
+    () => form.issues.slice(safeDoctorPage * PAGE_SIZE, safeDoctorPage * PAGE_SIZE + PAGE_SIZE),
+    [form.issues, safeDoctorPage]
   );
   const historyTotalPages = Math.max(1, Math.ceil(form.history.length / PAGE_SIZE));
   const safeHistoryPage = Math.min(historyPage, historyTotalPages - 1);
-  const visibleHistory = form.history.slice(
-    safeHistoryPage * PAGE_SIZE,
-    safeHistoryPage * PAGE_SIZE + PAGE_SIZE
+  const visibleHistory = useMemo(
+    () => form.history.slice(safeHistoryPage * PAGE_SIZE, safeHistoryPage * PAGE_SIZE + PAGE_SIZE),
+    [form.history, safeHistoryPage]
+  );
+  const visibleHistoryWithDate = useMemo(
+    () => visibleHistory.map((h) => ({ ...h, displayDate: new Date(h.ts).toLocaleString() })),
+    [visibleHistory]
+  );
+  const verifyOkCount = useMemo(
+    () => form.verifyRows.filter((r) => r.ok).length,
+    [form.verifyRows]
   );
 
   useEffect(() => {
@@ -99,21 +158,43 @@ export default function Home() {
   }, [form.history.length]);
 
   // Ctrl/Cmd+Enter submits (or confirms an open preview); Escape backs out.
+  // Subscribed once: latest form handlers read via ref to avoid re-subscribe every render.
+  const formKeyRef = useRef(form);
+  formKeyRef.current = form;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+
+  async function confirmAndMaybeReset(f: typeof form) {
+    const saved = await f.confirmSubmit();
+    if (saved && modeRef.current === "simple") {
+      f.resetModelForNext(saved);
+      document.getElementById("model_id")?.focus();
+    }
+  }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const f = formKeyRef.current;
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
-        if (form.preview) void form.confirmSubmit();
-        else void form.submit();
+        if (f.preview) void confirmAndMaybeReset(f);
+        else void f.submit();
       } else if (e.key === "Escape") {
-        if (form.preview) form.closePreview();
-        else if (form.deleting === "confirm") form.setDeleting("idle");
+        if (f.preview) f.closePreview();
+        else if (f.deleting === "confirm") f.setDeleting("idle");
         else setBulkConfirm(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("formMode") === "advanced") setMode("advanced");
+    } catch {
+      // Private mode etc: mode just won't persist.
+    }
+  }, []);
 
   useEffect(() => {
     const stored = localStorage.getItem("theme");
@@ -126,6 +207,15 @@ export default function Home() {
     applyTheme(initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function setFormMode(v: "simple" | "advanced") {
+    setMode(v);
+    try {
+      localStorage.setItem("formMode", v);
+    } catch {
+      // Private mode etc: mode just won't persist.
+    }
+  }
 
   function applyTheme(v: "light" | "dark") {
     setTheme(v);
@@ -148,7 +238,15 @@ export default function Home() {
             <h1 className="text-balance text-2xl font-semibold tracking-tight">{t.title}</h1>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t.subtitle}</p>
           </div>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex max-w-[45%] shrink-0 flex-wrap justify-end gap-2">
+            <a
+              href="/guide"
+              title={t.guideTitle}
+              aria-label={t.guideTitle}
+              className="inline-flex min-h-[44px] shrink-0 items-center rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold transition duration-200 hover:bg-slate-50 active:scale-[0.98] dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              {t.userGuide}
+            </a>
             <button
               type="button"
               onClick={() => applyTheme(theme === "light" ? "dark" : "light")}
@@ -177,6 +275,35 @@ export default function Home() {
             </button>
           </div>
         </header>
+
+        <fieldset className="mb-5">
+          <legend className="mb-1 text-sm font-medium">{t.modeTitle}</legend>
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="formMode"
+                value="simple"
+                checked={simple}
+                onChange={() => setFormMode("simple")}
+                className="accent-blue-600"
+              />
+              <span className="font-medium">{t.modeSimple}</span>
+            </label>
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="formMode"
+                value="advanced"
+                checked={!simple}
+                onChange={() => setFormMode("advanced")}
+                className="accent-blue-600"
+              />
+              <span className="font-medium">{t.modeAdvanced}</span>
+            </label>
+          </div>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t.modeHint}</p>
+        </fieldset>
 
         {form.externalChanged && (
           <div
@@ -227,10 +354,11 @@ export default function Home() {
           </div>
         )}
 
+        <h2 className="sr-only">{t.targetTitle} / {t.provider}</h2>
         <form onSubmit={form.submit} noValidate className="space-y-5">
           <SectionLabel n="00">{t.targetTitle}</SectionLabel>
           <div>
-            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t.targetTitle}>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t.targetTitle} onKeyDown={handleRadioGroupKeyDown}>
               {(
                 [
                   { v: "global", label: t.targetGlobal, hint: t.targetGlobalDesc },
@@ -243,6 +371,7 @@ export default function Home() {
                   type="button"
                   role="radio"
                   aria-checked={form.target.kind === o.v}
+                  tabIndex={form.target.kind === o.v ? 0 : -1}
                   title={o.hint}
                   onClick={() => {
                     setTargetKind(o.v);
@@ -313,6 +442,7 @@ export default function Home() {
             />
           </div>
 
+          {!simple && (
           <div>
             <p className="mb-2 text-sm font-medium">{t.presets}</p>
             <div className="flex flex-wrap gap-2">
@@ -329,8 +459,9 @@ export default function Home() {
               ))}
             </div>
           </div>
+          )}
 
-          {form.selectedProvider && form.selectedProvider.models.length > 0 && (
+          {!simple && form.selectedProvider && form.selectedProvider.models.length > 0 && (
             <div>
               <label htmlFor="model_sel" className="mb-1 block text-sm font-medium">
                 {t.modelToEdit}
@@ -355,7 +486,7 @@ export default function Home() {
           {form.selectedProvider && (
             <div>
               <p className="mb-2 text-sm font-medium">{t.gatesTitle}</p>
-              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t.gatesTitle}>
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t.gatesTitle} onKeyDown={handleRadioGroupKeyDown}>
                 {(
                   [
                     { v: "auto", label: t.gateAuto },
@@ -375,6 +506,7 @@ export default function Home() {
                       type="button"
                       role="radio"
                       aria-checked={active}
+                      tabIndex={active ? 0 : -1}
                       onClick={() => form.setGate(o.v)}
                       className={`rounded-full border px-3 py-1 text-xs font-medium transition duration-200 active:scale-95 ${
                         active
@@ -445,15 +577,15 @@ export default function Home() {
                   )}
                   <button
                     type="button"
-                    aria-label={t.dismiss}
+                    aria-label={`${t.dismiss}: ${t.manageTitle}`}
                     title={t.dismiss}
                     onClick={() => {
                       form.clearBulk();
                       setBulkConfirm(false);
                     }}
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+                    className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg border border-slate-300 px-3 py-2 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
                   >
-                    ×
+                    <span aria-hidden="true">×</span>
                   </button>
                 </div>
               )}
@@ -469,10 +601,7 @@ export default function Home() {
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t.verifyHint}</p>
                 {form.verifyRows.length > 0 && (
                   <p role="status" className="mt-1 text-sm font-medium">
-                    {t.verifySummary(
-                      form.verifyRows.filter((r) => r.ok).length,
-                      form.verifyRows.length
-                    )}
+                    {t.verifySummary(verifyOkCount, form.verifyRows.length)}
                   </p>
                 )}
                 {form.verifyRows.length > 0 && (
@@ -492,6 +621,9 @@ export default function Home() {
                             r.ok ? "bg-green-500" : "bg-red-500"
                           }`}
                         />
+                        <span className="shrink-0 text-xs font-bold" title={r.ok ? "pass" : "fail"}>
+                          {r.ok ? "✓" : "!"}
+                        </span>
                         <span className="flex-1 break-all" dir="ltr">{r.id}</span>
                         <span className="shrink-0 text-slate-500 dark:text-slate-400">
                           {r.ok ? t.verifyModels(r.count ?? 0) : (r.error ?? t.testFailed)}
@@ -685,7 +817,11 @@ export default function Home() {
             <button
               type="button"
               onClick={form.testConnection}
-              disabled={form.testing === "testing"}
+              disabled={
+                form.testing === "testing" ||
+                !form.baseUrl.trim() ||
+                !form.modelId.trim()
+              }
               className={secondaryBtn}
             >
               {form.testing === "testing" ? t.testing : t.testConnection}
@@ -693,7 +829,11 @@ export default function Home() {
             <button
               type="button"
               onClick={form.testPrompt}
-              disabled={form.promptState === "testing"}
+              disabled={
+                form.promptState === "testing" ||
+                !form.baseUrl.trim() ||
+                !form.modelId.trim()
+              }
               title={t.promptHint}
               className={secondaryBtn}
             >
@@ -755,6 +895,7 @@ export default function Home() {
             }}
           />
 
+          {!simple && (
           <fieldset>
             <legend className="mb-2 text-sm font-medium">{t.headers}</legend>
             <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">{t.headersHint}</p>
@@ -794,13 +935,13 @@ export default function Home() {
                   />
                   <button
                     type="button"
-                    aria-label="Remove"
+                    aria-label={`Remove ${t.headerName} ${i + 1}${row.name ? `: ${row.name}` : ""}`}
                     onClick={() =>
                       form.setHeaderRows(form.headerRows.filter((_, j) => j !== i))
                     }
-                    className="shrink-0 rounded-lg border border-slate-300 px-3 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+                    className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg border border-slate-300 px-3 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
                   >
-                    ×
+                    <span aria-hidden="true">×</span>
                   </button>
                 </div>
               ))}
@@ -813,7 +954,9 @@ export default function Home() {
               </button>
             </div>
           </fieldset>
+          )}
 
+          {!simple && (
           <Field
             label={t.smallModel}
             htmlFor="small_model"
@@ -830,11 +973,18 @@ export default function Home() {
               className={inputClass(false)}
             />
           </Field>
+          )}
 
           {form.errors._form && (
             <div
-              role={form.status === "success" ? "status" : "alert"}
-              className="animate-enter rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+              role={form.status === "error" ? "alert" : "status"}
+              className={`animate-enter rounded-lg border px-3 py-2 text-sm ${
+                form.status === "info"
+                  ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100"
+                  : form.status === "success"
+                    ? "border-green-300 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-100"
+                    : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+              }`}
             >
               {form.errors._form}
             </div>
@@ -867,10 +1017,11 @@ export default function Home() {
           {form.preview && (
             <div
               role="dialog"
-              aria-label={t.previewTitle}
+              aria-modal="true"
+              aria-labelledby="preview-title"
               className="animate-enter rounded-lg border border-blue-300 bg-blue-50/50 px-3 py-2 dark:border-blue-800 dark:bg-blue-950/40"
             >
-              <p className="text-sm font-semibold">
+              <p id="preview-title" className="text-sm font-semibold">
                 {t.previewTitle} — <span className="font-mono">{form.preview.model}</span>
               </p>
               {form.preview.changed ? (
@@ -913,7 +1064,8 @@ export default function Home() {
               <div className="mt-2 flex gap-2">
                 <button
                   type="button"
-                  onClick={form.confirmSubmit}
+                  ref={previewConfirmRef}
+                  onClick={() => void confirmAndMaybeReset(form)}
                   disabled={form.status === "saving"}
                   className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow shadow-blue-900/20 transition duration-200 hover:bg-blue-700 active:scale-[0.98] disabled:opacity-60"
                 >
@@ -957,6 +1109,7 @@ export default function Home() {
               {t.reset}
             </button>
           </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{t.keyboardHint}</p>
 
           {form.selectedProvider && (
             <div className="flex flex-wrap items-center gap-2">
@@ -1010,7 +1163,7 @@ export default function Home() {
         </form>
       </div>
 
-      <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
+      <div inert={form.preview ? true : undefined} className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
         <div className="flex items-center justify-between gap-2">
           <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
             <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">04</span>
@@ -1031,10 +1184,10 @@ export default function Home() {
             type="button"
             onClick={() => toggleCard("backups")}
             aria-expanded={!collapsed.backups}
-            aria-label={t.backups}
-            className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+            aria-label={`Toggle ${t.backups} section`}
+            className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
           >
-            {collapsed.backups ? "+" : "–"}
+            <span aria-hidden="true">{collapsed.backups ? "+" : "–"}</span>
           </button>
         </div>
         {!collapsed.backups && (
@@ -1099,7 +1252,7 @@ export default function Home() {
         )}
       </div>
 
-      <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
+      <div inert={form.preview ? true : undefined} className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
         <div className="flex items-center justify-between gap-2">
           <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
             <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">05</span>
@@ -1118,10 +1271,10 @@ export default function Home() {
             type="button"
             onClick={() => toggleCard("doctor")}
             aria-expanded={!collapsed.doctor}
-            aria-label={t.doctor}
-            className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+            aria-label={`Toggle ${t.doctor} section`}
+            className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
           >
-            {collapsed.doctor ? "+" : "–"}
+            <span aria-hidden="true">{collapsed.doctor ? "+" : "–"}</span>
           </button>
           </div>
         </div>
@@ -1142,6 +1295,9 @@ export default function Home() {
                     : "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950"
                 }`}
               >
+                <span className="shrink-0 text-sm font-bold" title={issue.level}>
+                  {issue.level === "error" ? "!" : "⚠"}
+                </span>
                 <span className="flex-1">{issue.message}</span>
                 {issue.fixable && (
                   <button
@@ -1172,7 +1328,7 @@ export default function Home() {
         )}
       </div>
 
-      <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
+      <div inert={form.preview ? true : undefined} className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
         <div className="flex items-center justify-between gap-2">
           <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
             <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">06</span>
@@ -1182,10 +1338,10 @@ export default function Home() {
             type="button"
             onClick={() => toggleCard("history")}
             aria-expanded={!collapsed.history}
-            aria-label={t.history}
-            className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+            aria-label={`Toggle ${t.history} section`}
+            className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
           >
-            {collapsed.history ? "+" : "–"}
+            <span aria-hidden="true">{collapsed.history ? "+" : "–"}</span>
           </button>
         </div>
         {!collapsed.history && (
@@ -1196,7 +1352,7 @@ export default function Home() {
         ) : (
           <>
             <ul className="mt-3 space-y-2">
-              {visibleHistory.map((h, i) => (
+              {visibleHistoryWithDate.map((h, i) => (
               <li
                 key={`${h.ts}-${safeHistoryPage * PAGE_SIZE + i}`}
                 className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
@@ -1208,7 +1364,7 @@ export default function Home() {
                   {[h.provider, h.model].filter(Boolean).join(" · ") || "—"}
                 </span>
                 <span className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400">
-                  {new Date(h.ts).toLocaleString()}
+                  {h.displayDate}
                 </span>
               </li>
             ))}
@@ -1229,7 +1385,7 @@ export default function Home() {
         )}
       </div>
 
-      <div className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
+      <div inert={form.preview ? true : undefined} className="mt-4 rounded-2xl bg-white p-6 shadow-xl shadow-blue-900/10 ring-1 ring-slate-200 dark:bg-slate-900 dark:shadow-black/40 dark:ring-slate-800 sm:p-8">
         <div className="flex items-center justify-between gap-2">
           <h2 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
             <span className="font-mono text-sm font-semibold tabular-nums text-blue-600 dark:text-blue-400">07</span>
@@ -1239,10 +1395,10 @@ export default function Home() {
             type="button"
             onClick={() => toggleCard("portability")}
             aria-expanded={!collapsed.portability}
-            aria-label={`${t.exportBtn} / ${t.importBtn}`}
-            className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+            aria-label={`Toggle ${t.exportBtn} / ${t.importBtn} section`}
+            className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg border border-slate-300 px-2 py-1 text-sm transition duration-200 hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
           >
-            {collapsed.portability ? "+" : "–"}
+            <span aria-hidden="true">{collapsed.portability ? "+" : "–"}</span>
           </button>
         </div>
         {!collapsed.portability && (
@@ -1257,13 +1413,23 @@ export default function Home() {
                 {t.exportBtn}
               </button>
               <label
-                className={`${secondaryBtn} cursor-pointer`}
+                className={`${secondaryBtn} cursor-pointer focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-200 dark:focus-within:ring-blue-900`}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    (
+                      e.currentTarget.querySelector(
+                        'input[type="file"]'
+                      ) as HTMLInputElement | null
+                    )?.click();
+                  }
+                }}
               >
                 {form.importBusy ? t.importing : t.importBtn}
                 <input
                   type="file"
                   accept="application/json,.json"
-                  className="hidden"
+                  className="peer sr-only"
                   disabled={form.importBusy}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
